@@ -70,9 +70,21 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     private var mergedStarCount: Int = 0
     private var lastMergeTime: TimeInterval = 0
     
+    // Performance monitoring
+    private var recentFrameTimes: [TimeInterval] = []
+    private var lastFrameTime: TimeInterval = 0
+    private var performanceMode: PerformanceMode = .high
+    
+    enum PerformanceMode {
+        case high, medium, low
+    }
+    
     // MARK: - Scene Lifecycle
     
     override func didMove(to view: SKView) {
+        // Preload all textures BEFORE scene setup
+        TextureCache.shared.preloadAllTextures()
+        
         setupScene()
         setupCamera()
         setupBackgroundStars()
@@ -917,6 +929,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     override func update(_ currentTime: TimeInterval) {
         guard !isGameOver else { return }
         
+        // Track frame rate for performance monitoring
+        trackFrameRate(currentTime)
+        
         // Update camera to follow black hole smoothly
         updateCamera()
         
@@ -940,6 +955,93 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         applyGravity()
         applyStarToStarGravity()
         removeDistantStars()
+    }
+    
+    // MARK: - Performance Monitoring
+    
+    private func trackFrameRate(_ currentTime: TimeInterval) {
+        if lastFrameTime > 0 {
+            let frameDuration = currentTime - lastFrameTime
+            recentFrameTimes.append(frameDuration)
+            
+            // Keep only last 60 frames
+            if recentFrameTimes.count > 60 {
+                recentFrameTimes.removeFirst()
+            }
+            
+            // Check average FPS every 60 frames
+            if recentFrameTimes.count == 60 {
+                let averageFrameTime = recentFrameTimes.reduce(0, +) / Double(recentFrameTimes.count)
+                let averageFPS = 1.0 / averageFrameTime
+                
+                // Adjust quality based on performance
+                if averageFPS < 55 && performanceMode != .low {
+                    reduceParticleQuality()
+                } else if averageFPS > 58 && performanceMode != .high {
+                    restoreParticleQuality()
+                }
+            }
+        }
+        lastFrameTime = currentTime
+    }
+    
+    private func reduceParticleQuality() {
+        print("⚠️ Reducing particle quality to maintain FPS")
+        
+        switch performanceMode {
+        case .high:
+            performanceMode = .medium
+            // Reduce birth rates by 40%
+            adjustStarParticleQuality(multiplier: 0.6)
+        case .medium:
+            performanceMode = .low
+            // Further reduce and disable distant particles
+            adjustStarParticleQuality(multiplier: 0.3)
+            disableDistantStarParticles()
+        case .low:
+            break
+        }
+    }
+    
+    private func restoreParticleQuality() {
+        print("✅ Restoring particle quality")
+        
+        switch performanceMode {
+        case .low:
+            performanceMode = .medium
+            adjustStarParticleQuality(multiplier: 0.6)
+        case .medium:
+            performanceMode = .high
+            adjustStarParticleQuality(multiplier: 1.0)
+        case .high:
+            break
+        }
+    }
+    
+    private func adjustStarParticleQuality(multiplier: CGFloat) {
+        for star in stars {
+            if let particles = star.children.first(where: { $0.name == "coronaParticles" }) as? SKEmitterNode {
+                // Adjust birth rate based on multiplier
+                let profile = VisualEffectProfile.profile(for: star.starType, size: star.size.width)
+                particles.particleBirthRate = profile.birthRate * profile.coronaIntensity * multiplier
+            }
+        }
+    }
+    
+    private func disableDistantStarParticles() {
+        guard let camera = camera else { return }
+        
+        for star in stars {
+            let distance = hypot(star.position.x - camera.position.x,
+                               star.position.y - camera.position.y)
+            
+            // Disable particles for stars more than 500pt away
+            if distance > 500 {
+                if let particles = star.children.first(where: { $0.name == "coronaParticles" }) as? SKEmitterNode {
+                    particles.particleBirthRate = 0
+                }
+            }
+        }
     }
     
     private func applyStarToStarGravity() {

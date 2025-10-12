@@ -14,20 +14,32 @@ class Star: SKSpriteNode {
     var isMergedStar: Bool = false
     var basePoints: Int
     
+    private var innerGlow: SKSpriteNode?
+    private var outerCorona: SKSpriteNode?
+    private var coronaParticles: SKEmitterNode?
+    private var visualProfile: VisualEffectProfile!
+    
     init(type: StarType) {
         self.starType = type
         self.basePoints = type.basePoints
         
         // Use type-specific size range
         let diameter = CGFloat.random(in: type.sizeRange)
-        let texture = Star.createCircleTexture(diameter: diameter, color: type.uiColor)
+        
+        // Get cached texture instead of generating
+        let sizeBucket = TextureCache.shared.getSizeBucket(diameter)
+        let texture = TextureCache.shared.getStarCoreTexture(type: type, sizeBucket: sizeBucket)
+        
         super.init(texture: texture, color: .clear, size: CGSize(width: diameter, height: diameter))
+        
+        // Get visual profile for this star
+        self.visualProfile = VisualEffectProfile.profile(for: type, size: diameter)
         
         self.name = "star"
         setupPhysics(diameter: diameter)
-        addGlowEffect()
+        setupMultiLayerVisuals()
         addInitialDrift()
-        startSpecialEffect()
+        startAnimations()
     }
     
     required init?(coder aDecoder: NSCoder) {
@@ -50,49 +62,152 @@ class Star: SKSpriteNode {
         physicsBody?.mass = radius * radius * starType.massMultiplier
     }
     
-    private func addGlowEffect() {
-        // Add a glow with type-specific radius
-        let glowRadius = starType.glowRadius
-        let glowSize = size.width + (glowRadius * 2)
-        let glowNode = SKSpriteNode(texture: self.texture, size: CGSize(width: glowSize, height: glowSize))
-        glowNode.color = starType.uiColor
-        glowNode.colorBlendFactor = 0.5
-        glowNode.alpha = 0.3
-        glowNode.zPosition = -1
-        glowNode.name = "glow"
-        addChild(glowNode)
+    private func setupMultiLayerVisuals() {
+        // Layer 1: Outer Corona (4x core size, very diffuse)
+        createOuterCorona()
         
-        // Pulse animation for glow - intensity based on star type
-        let minAlpha: CGFloat = starType == .blueGiant || starType == .whiteDwarf ? 0.3 : 0.2
-        let maxAlpha: CGFloat = starType == .blueGiant || starType == .whiteDwarf ? 0.5 : 0.4
+        // Layer 2: Inner Glow (2x core size, brighter)
+        createInnerGlow()
         
-        let pulse = SKAction.sequence([
-            SKAction.fadeAlpha(to: minAlpha, duration: 0.8),
-            SKAction.fadeAlpha(to: maxAlpha, duration: 0.8)
-        ])
-        glowNode.run(SKAction.repeatForever(pulse))
+        // Layer 3: Core is the base sprite (already created)
+        
+        // Layer 4: Corona particles (only for large stars)
+        if visualProfile.hasCorona {
+            createCoronaParticles()
+        }
     }
     
-    private func startSpecialEffect() {
-        switch starType {
-        case .blueGiant:
-            // Fast twinkling effect
-            let twinkle = SKAction.sequence([
-                SKAction.fadeAlpha(to: 0.9, duration: 0.15),
-                SKAction.fadeAlpha(to: 1.0, duration: 0.15)
-            ])
-            run(SKAction.repeatForever(twinkle), withKey: "twinkle")
-            
-        case .redSupergiant:
-            // Slow pulsing effect
+    private func createOuterCorona() {
+        let coronaSize = size.width * 4.0
+        let sizeBucket = TextureCache.shared.getSizeBucket(coronaSize)
+        let texture = TextureCache.shared.getStarGlowTexture(type: starType, sizeBucket: sizeBucket)
+        
+        outerCorona = SKSpriteNode(texture: texture, size: CGSize(width: coronaSize, height: coronaSize))
+        outerCorona!.alpha = 0.15
+        outerCorona!.blendMode = .add
+        outerCorona!.zPosition = -2
+        outerCorona!.name = "outerCorona"
+        addChild(outerCorona!)
+    }
+    
+    private func createInnerGlow() {
+        let glowSize = size.width * 2.0
+        let sizeBucket = TextureCache.shared.getSizeBucket(glowSize)
+        let texture = TextureCache.shared.getStarGlowTexture(type: starType, sizeBucket: sizeBucket)
+        
+        innerGlow = SKSpriteNode(texture: texture, size: CGSize(width: glowSize, height: glowSize))
+        innerGlow!.alpha = 0.5
+        innerGlow!.blendMode = .add
+        innerGlow!.zPosition = -1
+        innerGlow!.name = "innerGlow"
+        addChild(innerGlow!)
+    }
+    
+    private func createCoronaParticles() {
+        coronaParticles = SKEmitterNode()
+        
+        // Get particle texture
+        let particleTexture = TextureCache.shared.getParticleTexture(size: 8)
+        coronaParticles!.particleTexture = particleTexture
+        
+        // Size-based configuration
+        coronaParticles!.particleBirthRate = visualProfile.birthRate * visualProfile.coronaIntensity
+        coronaParticles!.particleLifetime = visualProfile.lifetime
+        coronaParticles!.particleLifetimeRange = visualProfile.lifetime * 0.3
+        
+        // Omnidirectional slow drift
+        coronaParticles!.particleSpeed = visualProfile.particleSpeed
+        coronaParticles!.particleSpeedRange = visualProfile.particleSpeed * 0.5
+        coronaParticles!.emissionAngle = 0
+        coronaParticles!.emissionAngleRange = .pi * 2
+        
+        // Alpha and scale
+        coronaParticles!.particleAlpha = 0.4
+        coronaParticles!.particleAlphaRange = 0.1
+        coronaParticles!.particleAlphaSpeed = -0.2
+        coronaParticles!.particleScale = visualProfile.particleScale
+        coronaParticles!.particleScaleRange = visualProfile.particleScale * 0.3
+        coronaParticles!.particleScaleSpeed = 0.2  // Gentle expansion
+        
+        // Color and blend
+        coronaParticles!.particleColor = starType.uiColor
+        coronaParticles!.particleColorBlendFactor = 1.0
+        coronaParticles!.particleBlendMode = .add
+        
+        // Positioning
+        coronaParticles!.particlePosition = CGPoint.zero
+        coronaParticles!.particlePositionRange = CGVector(dx: size.width / 3, dy: size.width / 3)
+        coronaParticles!.zPosition = -3
+        coronaParticles!.name = "coronaParticles"
+        
+        addChild(coronaParticles!)
+    }
+    
+    private func startAnimations() {
+        // Stagger start time to avoid synchronization
+        let randomDelay = TimeInterval.random(in: 0...2.0)
+        
+        let startAnimations = SKAction.sequence([
+            SKAction.wait(forDuration: randomDelay),
+            SKAction.run { [weak self] in
+                self?.applyPulseAnimation()
+                
+                if self?.visualProfile.hasTwinkling == true {
+                    self?.createTwinkleEffect()
+                }
+                
+                // Type-specific effects
+                self?.applyTypeSpecificEffects()
+            }
+        ])
+        
+        run(startAnimations)
+    }
+    
+    private func applyPulseAnimation() {
+        guard let innerGlow = innerGlow else { return }
+        
+        let targetScale = 1.0 + visualProfile.pulseScale
+        let halfDuration = visualProfile.pulseDuration / 2.0
+        
+        let pulse = SKAction.sequence([
+            SKAction.scale(to: targetScale, duration: halfDuration),
+            SKAction.scale(to: 1.0, duration: halfDuration)
+        ])
+        pulse.timingMode = .easeInEaseOut
+        
+        innerGlow.run(SKAction.repeatForever(pulse), withKey: "glowPulse")
+    }
+    
+    private func createTwinkleEffect() {
+        // Action-based twinkling (simpler, performant)
+        let twinkle = SKAction.sequence([
+            SKAction.fadeAlpha(to: 0.4, duration: 0.8),
+            SKAction.fadeAlpha(to: 0.8, duration: 1.2),
+            SKAction.wait(forDuration: TimeInterval.random(in: 1.0...3.0))
+        ])
+        
+        run(SKAction.repeatForever(twinkle), withKey: "twinkle")
+    }
+    
+    private func applyTypeSpecificEffects() {
+        // Red supergiants get dramatic scale pulsing
+        if starType == .redSupergiant {
             let pulse = SKAction.sequence([
                 SKAction.scale(to: 0.95, duration: 1.5),
                 SKAction.scale(to: 1.05, duration: 1.5)
             ])
-            run(SKAction.repeatForever(pulse), withKey: "pulse")
-            
-        default:
-            break
+            pulse.timingMode = .easeInEaseOut
+            run(SKAction.repeatForever(pulse), withKey: "superPulse")
+        }
+        
+        // Blue giants get fast twinkling on core
+        if starType == .blueGiant {
+            let fastTwinkle = SKAction.sequence([
+                SKAction.fadeAlpha(to: 0.9, duration: 0.15),
+                SKAction.fadeAlpha(to: 1.0, duration: 0.15)
+            ])
+            run(SKAction.repeatForever(fastTwinkle), withKey: "blueTwinkle")
         }
     }
     
