@@ -280,28 +280,35 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         let size = blackHole.currentDiameter
         let random = CGFloat.random(in: 0...1)
         
-        if size < 70 {
-            // Early game: White and Blue only (matches ring colors)
-            if random < 0.60 { return .whiteDwarf }
-            else { return .blueGiant }
+        if size < 50 {
+            // Phase 1: Safe learning (30-50pt) - Only tiny stars
+            return .whiteDwarf  // 100% (18-28pt - always safe)
+            
+        } else if size < 70 {
+            // Phase 2: Introduce yellow (50-70pt) - All edible
+            if random < 0.70 { return .whiteDwarf }      // 70% (18-28pt)
+            else { return .yellowDwarf }                  // 30% (32-42pt)
+            
         } else if size < 100 {
-            // Mid game: Add Yellow
-            if random < 0.40 { return .whiteDwarf }
-            else if random < 0.60 { return .yellowDwarf }
-            else { return .blueGiant }
+            // Phase 3: Introduce blue (70-100pt) - Blues now safe at 70+
+            if random < 0.40 { return .whiteDwarf }      // 40% (18-28pt)
+            else if random < 0.70 { return .yellowDwarf } // 30% (32-42pt)
+            else { return .blueGiant }                    // 30% (45-58pt)
+            
         } else if size < 130 {
-            // Late game: Add Orange
-            if random < 0.30 { return .whiteDwarf }
-            else if random < 0.50 { return .yellowDwarf }
-            else if random < 0.75 { return .blueGiant }
-            else { return .orangeGiant }
+            // Phase 4: Introduce orange (100-130pt) - Some oranges edible
+            if random < 0.25 { return .whiteDwarf }      // 25% (18-28pt)
+            else if random < 0.45 { return .yellowDwarf } // 20% (32-42pt)
+            else if random < 0.75 { return .blueGiant }   // 30% (45-58pt)
+            else { return .orangeGiant }                  // 25% (90-140pt - risky!)
+            
         } else {
-            // End game: All colors available
-            if random < 0.25 { return .whiteDwarf }
-            else if random < 0.40 { return .yellowDwarf }
-            else if random < 0.65 { return .blueGiant }
-            else if random < 0.88 { return .orangeGiant }
-            else { return .redSupergiant }
+            // Phase 5: All types (130pt+) - Full game unlocked
+            if random < 0.20 { return .whiteDwarf }      // 20% (18-28pt)
+            else if random < 0.35 { return .yellowDwarf } // 15% (32-42pt)
+            else if random < 0.60 { return .blueGiant }   // 25% (45-58pt)
+            else if random < 0.85 { return .orangeGiant } // 25% (90-140pt)
+            else { return .redSupergiant }                // 15% (180-400pt - highest reward!)
         }
     }
     
@@ -344,17 +351,24 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     private func getAvailableStarTypes() -> [StarType] {
         let size = blackHole.currentDiameter
         
-        if size < 70 {
-            // Early game: White and Blue only
-            return [.whiteDwarf, .blueGiant]
+        if size < 50 {
+            // Phase 1: White only
+            return [.whiteDwarf]
+            
+        } else if size < 70 {
+            // Phase 2: White + Yellow
+            return [.whiteDwarf, .yellowDwarf]
+            
         } else if size < 100 {
-            // Mid game: Add Yellow
+            // Phase 3: White + Yellow + Blue
             return [.whiteDwarf, .yellowDwarf, .blueGiant]
+            
         } else if size < 130 {
-            // Late game: Add Orange
+            // Phase 4: Add Orange
             return [.whiteDwarf, .yellowDwarf, .blueGiant, .orangeGiant]
+            
         } else {
-            // End game: All colors available
+            // Phase 5: All colors available
             return StarType.allCases
         }
     }
