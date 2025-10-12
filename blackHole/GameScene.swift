@@ -70,6 +70,10 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     private var mergedStarCount: Int = 0
     private var lastMergeTime: TimeInterval = 0
     
+    // Touch tracking for preventing accidental touches
+    private var isBlackHoleBeingMoved = false
+    private var activeTouch: UITouch?
+    
     // Performance monitoring
     private var recentFrameTimes: [TimeInterval] = []
     private var lastFrameTime: TimeInterval = 0
@@ -239,15 +243,38 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     }
     
     private func startGameTimers() {
-        // Star spawning timer
-        starSpawnTimer = Timer.scheduledTimer(withTimeInterval: GameConstants.starSpawnInterval, repeats: true) { [weak self] _ in
-            self?.spawnStar()
-        }
+        // Dynamic spawn timer that adjusts with black hole size
+        scheduleNextStarSpawn()
         
         // Color change timer
         colorChangeTimer = Timer.scheduledTimer(withTimeInterval: GameConstants.colorChangeInterval, repeats: true) { [weak self] _ in
             self?.changeTargetColor()
         }
+    }
+    
+    private func scheduleNextStarSpawn() {
+        let interval = calculateSpawnInterval()
+        
+        starSpawnTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: false) { [weak self] _ in
+            self?.spawnStar()
+            self?.scheduleNextStarSpawn()  // Reschedule with updated interval
+        }
+    }
+    
+    private func calculateSpawnInterval() -> TimeInterval {
+        let size = blackHole.currentDiameter
+        
+        // No acceleration until threshold
+        guard size >= GameConstants.spawnAccelerationThreshold else {
+            return GameConstants.baseStarSpawnInterval
+        }
+        
+        // Progressive acceleration formula
+        let accelerationFactor = (size - GameConstants.spawnAccelerationThreshold) / GameConstants.spawnAccelerationFactor
+        let reducedInterval = GameConstants.baseStarSpawnInterval * (1.0 / (1.0 + accelerationFactor))
+        
+        // Enforce minimum interval
+        return max(GameConstants.minStarSpawnInterval, reducedInterval)
     }
     
     // MARK: - Game Logic
@@ -302,13 +329,22 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             else if random < 0.75 { return .blueGiant }   // 30% (45-58pt)
             else { return .orangeGiant }                  // 25% (90-140pt - risky!)
             
+        } else if size < 600 {
+            // Phase 5: All types (130-600pt) - Full game unlocked
+            if random < 0.20 { return .whiteDwarf }      // 20% (16-24pt)
+            else if random < 0.35 { return .yellowDwarf } // 15% (28-38pt)
+            else if random < 0.60 { return .blueGiant }   // 25% (55-75pt)
+            else if random < 0.85 { return .orangeGiant } // 25% (120-200pt)
+            else { return .redSupergiant }                // 15% (280-600pt - highest reward!)
+            
         } else {
-            // Phase 5: All types (130pt+) - Full game unlocked
-            if random < 0.20 { return .whiteDwarf }      // 20% (18-28pt)
-            else if random < 0.35 { return .yellowDwarf } // 15% (32-42pt)
-            else if random < 0.60 { return .blueGiant }   // 25% (45-58pt)
-            else if random < 0.85 { return .orangeGiant } // 25% (90-140pt)
-            else { return .redSupergiant }                // 15% (180-400pt - highest reward!)
+            // Phase 6: Supermassive mode (600pt+)
+            // Favor larger, more valuable stars
+            if random < 0.10 { return .whiteDwarf }      // 10% (less tedious small stars)
+            else if random < 0.15 { return .yellowDwarf } // 5%
+            else if random < 0.30 { return .blueGiant }   // 15%
+            else if random < 0.60 { return .orangeGiant } // 30% (common)
+            else { return .redSupergiant }                // 40% (very common!)
         }
     }
     
@@ -367,8 +403,12 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             // Phase 4: Add Orange
             return [.whiteDwarf, .yellowDwarf, .blueGiant, .orangeGiant]
             
-        } else {
+        } else if size < 600 {
             // Phase 5: All colors available
+            return StarType.allCases
+            
+        } else {
+            // Phase 6: Supermassive mode - all colors always available
             return StarType.allCases
         }
     }
@@ -464,11 +504,12 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             return
         }
         
-        // SECOND CHECK: Color/type match (or rainbow active)
+        // SECOND CHECK: Color/type match (or rainbow active with size restriction)
         let isCorrectType = star.starType == blackHole.targetType
         let rainbowActive = activePowerUp.activeType == .rainbow
+        let canEatWithRainbow = rainbowActive && blackHole.canConsume(star)  // Rainbow allows any color but still respects size
         
-        if isCorrectType || rainbowActive {
+        if isCorrectType || canEatWithRainbow {
             // Correct type: grow and add score
             blackHole.grow()
             let multiplier = GameManager.shared.getScoreMultiplier(blackHoleDiameter: blackHole.currentDiameter)
@@ -919,12 +960,22 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard let touch = touches.first else { return }
+        
+        // If already moving black hole with another touch, ignore new touches
+        if isBlackHoleBeingMoved && activeTouch != touch {
+            return
+        }
+        
         let location = touch.location(in: self)
         
         if isGameOver {
             // Tap anywhere to restart when game is over
             restartGame()
         } else {
+            // Start tracking this touch for black hole movement
+            isBlackHoleBeingMoved = true
+            activeTouch = touch
+            
             // Move black hole to touch location immediately (in world coordinates)
             blackHole.position = location
         }
@@ -934,8 +985,31 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         guard !isGameOver else { return }
         guard let touch = touches.first else { return }
         
+        // Only respond to the active touch
+        guard touch == activeTouch else { return }
+        
         let location = touch.location(in: self)
         blackHole.position = location
+    }
+    
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard let touch = touches.first else { return }
+        
+        // If the active touch ended, stop tracking movement
+        if touch == activeTouch {
+            isBlackHoleBeingMoved = false
+            activeTouch = nil
+        }
+    }
+    
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard let touch = touches.first else { return }
+        
+        // If the active touch was cancelled, stop tracking movement
+        if touch == activeTouch {
+            isBlackHoleBeingMoved = false
+            activeTouch = nil
+        }
     }
     
     // MARK: - Update Loop
@@ -1112,6 +1186,28 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         let newX = cameraNode.position.x + (blackHole.position.x - cameraNode.position.x) * lerpFactor
         let newY = cameraNode.position.y + (blackHole.position.y - cameraNode.position.y) * lerpFactor
         cameraNode.position = CGPoint(x: newX, y: newY)
+        
+        // Dynamic zoom based on black hole size
+        let targetZoom = calculateCameraZoom(blackHoleSize: blackHole.currentDiameter)
+        let currentZoom = cameraNode.xScale
+        
+        // Smooth zoom transition
+        let newZoom = currentZoom + (targetZoom - currentZoom) * GameConstants.cameraZoomLerpFactor
+        cameraNode.setScale(newZoom)
+    }
+    
+    private func calculateCameraZoom(blackHoleSize: CGFloat) -> CGFloat {
+        // Keep black hole at constant screen percentage
+        let screenHeight = size.height
+        let targetPercentage = GameConstants.cameraZoomTargetPercentage
+        
+        // Calculate required zoom to maintain size
+        // In SpriteKit: scale > 1.0 = zoomed out (see more)
+        let zoomFactor = blackHoleSize / (screenHeight * targetPercentage)
+        
+        // Clamp between min and max zoom
+        // Min 0.5 = most zoomed in, Max 4.0 = most zoomed out
+        return max(GameConstants.cameraMinZoom, min(GameConstants.cameraMaxZoom, zoomFactor))
     }
     
     // MARK: - UI Updates

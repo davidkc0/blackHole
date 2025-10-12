@@ -12,11 +12,17 @@ enum GameConstants {
     // Black Hole
     static let blackHoleInitialDiameter: CGFloat = 40
     static let blackHoleMinDiameter: CGFloat = 30
-    static let blackHoleMaxDiameter: CGFloat = 300
+    static let blackHoleMaxDiameter: CGFloat = 10000  // Effectively unlimited
     static let blackHoleGrowthMultiplier: CGFloat = 1.15
     static let blackHoleShrinkMultiplier: CGFloat = 0.8
     static let blackHoleSizeAnimationDuration: TimeInterval = 0.2
     static let blackHoleScreenPadding: CGFloat = 30
+    
+    // Camera Zoom
+    static let cameraZoomTargetPercentage: CGFloat = 0.28  // Black hole takes 28% of screen
+    static let cameraMinZoom: CGFloat = 0.5                // Maximum zoom in
+    static let cameraMaxZoom: CGFloat = 4.0                // Maximum zoom out
+    static let cameraZoomLerpFactor: CGFloat = 0.15        // Smooth zoom speed
     
     // Ring Indicator
     static let ringGap: CGFloat = 10
@@ -26,8 +32,12 @@ enum GameConstants {
     static let ringPulseScaleMin: CGFloat = 0.95
     static let ringPulseScaleMax: CGFloat = 1.05
     
-    // Stars
-    static let starSpawnInterval: TimeInterval = 0.6
+    // Stars - Dynamic spawning with acceleration
+    static let baseStarSpawnInterval: TimeInterval = 0.6       // Early game baseline
+    static let minStarSpawnInterval: TimeInterval = 0.15       // Late game minimum
+    static let spawnAccelerationThreshold: CGFloat = 200       // When acceleration begins
+    static let spawnAccelerationFactor: CGFloat = 400          // Rate of acceleration
+    static let starSpawnInterval: TimeInterval = 0.6           // Legacy constant (kept for compatibility)
     static let starMaxCount: Int = 30
     static let starMinSpawnDistance: CGFloat = 100
     static let starSpawnAnimationDuration: TimeInterval = 0.2
@@ -48,7 +58,7 @@ enum GameConstants {
     // Power-Up System
     static let cometCoreSize: CGFloat = 15
     static let cometSpeed: CGFloat = 250
-    static let rainbowDuration: TimeInterval = 8.0
+    static let rainbowDuration: TimeInterval = 5.0
     static let freezeDuration: TimeInterval = 6.0
     static let rainbowSpawnInterval: TimeInterval = 20.0
     static let freezeSpawnInterval: TimeInterval = 25.0
@@ -118,15 +128,15 @@ enum StarType: CaseIterable {
     var sizeRange: ClosedRange<CGFloat> {
         switch self {
         case .whiteDwarf:
-            return 18...28
+            return 16...24        // Slightly smaller
         case .yellowDwarf:
-            return 32...42
+            return 28...38        // Keep similar
         case .blueGiant:
-            return 45...58
+            return 55...75        // Larger (+17pt max)
         case .orangeGiant:
-            return 90...140
+            return 120...200      // Much larger (+60pt max)
         case .redSupergiant:
-            return 180...400
+            return 280...600      // MASSIVE (+200pt max!)
         }
     }
     
@@ -181,7 +191,7 @@ enum StarType: CaseIterable {
 }
 
 extension UIColor {
-    static let spaceBackground = UIColor(red: 0.039, green: 0.055, blue: 0.153, alpha: 1.0) // #0A0E27
+    static let spaceBackground = UIColor(hex: "#120e42") 
     
     convenience init(hex: String) {
         let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)

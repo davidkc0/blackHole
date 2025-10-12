@@ -32,7 +32,22 @@ class GameManager {
     }
     
     func getScoreMultiplier(blackHoleDiameter: CGFloat) -> Int {
-        return max(1, Int(floor(blackHoleDiameter / 60)))
+        let baseMultiplier = Int(floor(blackHoleDiameter / 60))
+        
+        // Milestone bonuses for reaching massive sizes
+        var bonusMultiplier = 0
+        
+        if blackHoleDiameter >= 600 {
+            bonusMultiplier += 5      // "Supermassive" tier
+        }
+        if blackHoleDiameter >= 1000 {
+            bonusMultiplier += 10     // "Cosmic" tier
+        }
+        if blackHoleDiameter >= 2000 {
+            bonusMultiplier += 20     // "Legendary" tier
+        }
+        
+        return max(1, baseMultiplier + bonusMultiplier)
     }
     
     private func saveHighScore() {

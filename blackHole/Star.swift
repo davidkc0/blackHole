@@ -52,12 +52,14 @@ class Star: SKSpriteNode {
         physicsBody?.isDynamic = true
         physicsBody?.affectedByGravity = false
         physicsBody?.categoryBitMask = GameConstants.starCategory
-        physicsBody?.collisionBitMask = GameConstants.starCategory // Allow star-star collisions
-        physicsBody?.contactTestBitMask = GameConstants.blackHoleCategory | GameConstants.starCategory // Detect both
-        physicsBody?.linearDamping = 0.1
-        physicsBody?.angularDamping = 0.1
-        physicsBody?.restitution = 0.1 // Minimal bounce for easier merging
-        physicsBody?.friction = 0.5
+        physicsBody?.collisionBitMask = GameConstants.starCategory
+        physicsBody?.contactTestBitMask = GameConstants.blackHoleCategory | GameConstants.starCategory
+        
+        // Improved collision behavior
+        physicsBody?.linearDamping = 0.3       // Increased from 0.1 (less bouncing)
+        physicsBody?.angularDamping = 0.5      // Increased from 0.1 (less spinning)
+        physicsBody?.restitution = 0.05        // Decreased from 0.1 (minimal bounce)
+        physicsBody?.friction = 1.0            // Increased from 0.5 (better grip)
         // Mass proportional to area with type-specific multiplier
         physicsBody?.mass = radius * radius * starType.massMultiplier
     }

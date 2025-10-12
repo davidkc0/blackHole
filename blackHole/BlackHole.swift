@@ -89,7 +89,8 @@ class BlackHole: SKSpriteNode {
     }
     
     func grow() {
-        let newDiameter = min(currentDiameter * GameConstants.blackHoleGrowthMultiplier, GameConstants.blackHoleMaxDiameter)
+        // Remove the min() cap - allow infinite growth
+        let newDiameter = currentDiameter * GameConstants.blackHoleGrowthMultiplier
         updateSize(to: newDiameter)
     }
     
