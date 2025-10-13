@@ -59,6 +59,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     private var starSpawnTimer: Timer?
     private var colorChangeTimer: Timer?
     
+    // Grace period tracking
+    private var lastCorrectEatTime: TimeInterval = 0
+    
     private var scoreLabel: SKLabelNode!
     private var gameOverLabel: SKLabelNode?
     private var finalScoreLabel: SKLabelNode?
@@ -172,9 +175,6 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         blackHole.zPosition = 10
         addChild(blackHole)
         
-        // Setup particle emitter target after adding to scene
-        blackHole.setupParticleTargetNode()
-        
         // Set initial target color from available types
         let availableTypes = getAvailableStarTypes()
         let initialType = availableTypes.randomElement() ?? .whiteDwarf
@@ -246,10 +246,8 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         // Dynamic spawn timer that adjusts with black hole size
         scheduleNextStarSpawn()
         
-        // Color change timer
-        colorChangeTimer = Timer.scheduledTimer(withTimeInterval: GameConstants.colorChangeInterval, repeats: true) { [weak self] _ in
-            self?.changeTargetColor()
-        }
+        // Color change timer with random intervals
+        scheduleNextColorChange()
     }
     
     private func scheduleNextStarSpawn() {
@@ -258,6 +256,16 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         starSpawnTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: false) { [weak self] _ in
             self?.spawnStar()
             self?.scheduleNextStarSpawn()  // Reschedule with updated interval
+        }
+    }
+    
+    private func scheduleNextColorChange() {
+        // Random interval between 5-12 seconds
+        let interval = TimeInterval.random(in: 5.0...12.0)
+        
+        colorChangeTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: false) { [weak self] _ in
+            self?.changeTargetColor()
+            self?.scheduleNextColorChange()  // Reschedule with new random interval
         }
     }
     
@@ -380,8 +388,17 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     private func changeTargetColor() {
         guard !isGameOver else { return }
         let availableTypes = getAvailableStarTypes()
-        let newType = availableTypes.randomElement() ?? .whiteDwarf
-        blackHole.updateTargetType(to: newType)
+        
+        // Don't repeat the same color (unless it's the only option)
+        if availableTypes.count > 1 {
+            let differentTypes = availableTypes.filter { $0 != blackHole.targetType }
+            let newType = differentTypes.randomElement() ?? availableTypes.randomElement() ?? .whiteDwarf
+            blackHole.updateTargetType(to: newType)
+        } else {
+            // Only one color available, no choice but to repeat
+            let newType = availableTypes.first ?? .whiteDwarf
+            blackHole.updateTargetType(to: newType)
+        }
     }
     
     private func getAvailableStarTypes() -> [StarType] {
@@ -512,22 +529,42 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         if isCorrectType || canEatWithRainbow {
             // Correct type: grow and add score
             blackHole.grow()
+            lastCorrectEatTime = CACurrentMediaTime()  // Track for grace period
+            
             let multiplier = GameManager.shared.getScoreMultiplier(blackHoleDiameter: blackHole.currentDiameter)
             let points = star.starType.basePoints * multiplier
             GameManager.shared.addScore(points)
             AudioManager.shared.playCorrectSound()
             AudioManager.shared.playGrowSound()
         } else {
-            // Wrong type: shrink and lose score
-            blackHole.shrink()
-            GameManager.shared.addScore(GameConstants.wrongColorPenalty)
-            AudioManager.shared.playWrongSound()
-            AudioManager.shared.playShrinkSound()
+            // Wrong type: check grace period first
+            let currentTime = CACurrentMediaTime()
+            let gracePeriod: TimeInterval = 0.5
             
-            // Check for game over
-            if blackHole.isAtMinimumSize() {
-                gameOverReason = "Black hole shrunk too small"
-                triggerGameOver()
+            if currentTime - lastCorrectEatTime < gracePeriod {
+                // Grace period active - just remove star without penalty
+                print("🛡️ Grace period active - no shrink penalty")
+                // Star still gets removed but no shrink/penalty
+            } else {
+                // Grace period expired - apply progressive shrink
+                // Progressive forgiveness: larger black holes shrink less
+                let size = blackHole.currentDiameter
+                let forgivenessFactor = min(size / 200.0, 0.5) // 0 at 0pt, 0.5 at 200pt+
+                let adjustedMultiplier = GameConstants.blackHoleShrinkMultiplier + (0.1 * forgivenessFactor)
+                // e.g., 40pt: 0.8, 100pt: 0.85, 200pt+: 0.85
+                
+                print("🔻 Wrong color - shrinking by \(String(format: "%.2f", adjustedMultiplier))x (size: \(String(format: "%.0f", size))pt)")
+                
+                blackHole.shrinkByMultiplier(adjustedMultiplier)
+                GameManager.shared.addScore(GameConstants.wrongColorPenalty)
+                AudioManager.shared.playWrongSound()
+                AudioManager.shared.playShrinkSound()
+                
+                // Check for game over
+                if blackHole.isAtMinimumSize() {
+                    gameOverReason = "Black hole shrunk too small"
+                    triggerGameOver()
+                }
             }
         }
         
@@ -758,6 +795,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         switch type {
         case .rainbow:
             print("🌈 Rainbow Mode activated! Eat any color for \(type.duration)s")
+            startRainbowPhotonRing()
             
         case .freeze:
             freezeAllStars()
@@ -774,8 +812,8 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         case .freeze:
             unfreezeAllStars()
         case .rainbow:
-            // Just clear state
-            break
+            // Restore normal photon ring
+            stopRainbowPhotonRing()
         }
         
         AudioManager.shared.playPowerUpExpireSound()
@@ -791,6 +829,47 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         for star in stars {
             star.physicsBody?.isDynamic = true
         }
+    }
+    
+    private func startRainbowPhotonRing() {
+        // Stop normal pulse animation
+        blackHole.photonRing.removeAllActions()
+        
+        // Create rainbow color cycle
+        let rainbowColors: [UIColor] = [
+            UIColor(hex: "#F0F0F0"), // White
+            UIColor(hex: "#FFD700"), // Yellow
+            UIColor(hex: "#4DA6FF"), // Blue
+            UIColor(hex: "#FF8C42"), // Orange
+            UIColor(hex: "#DC143C")  // Red
+        ]
+        
+        var colorActions: [SKAction] = []
+        for color in rainbowColors {
+            let changeColor = SKAction.run {
+                self.blackHole.photonRing.strokeColor = color
+            }
+            let wait = SKAction.wait(forDuration: 0.3)
+            colorActions.append(SKAction.sequence([changeColor, wait]))
+        }
+        
+        let cycle = SKAction.sequence(colorActions)
+        blackHole.photonRing.run(SKAction.repeatForever(cycle), withKey: "rainbowCycle")
+    }
+    
+    private func stopRainbowPhotonRing() {
+        // Stop rainbow cycle
+        blackHole.photonRing.removeAction(forKey: "rainbowCycle")
+        
+        // Restore target color
+        blackHole.photonRing.strokeColor = blackHole.targetType.uiColor
+        
+        // Resume normal pulse animation
+        let pulse = SKAction.sequence([
+            SKAction.fadeAlpha(to: 1.0, duration: 0.8),
+            SKAction.fadeAlpha(to: 0.7, duration: 0.8)
+        ])
+        blackHole.photonRing.run(SKAction.repeatForever(pulse))
     }
     
     private func showCollectionEffect(at position: CGPoint, type: PowerUpType) {

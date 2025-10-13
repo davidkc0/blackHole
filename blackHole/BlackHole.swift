@@ -10,7 +10,8 @@ import SpriteKit
 class BlackHole: SKSpriteNode {
     private(set) var currentDiameter: CGFloat
     private(set) var targetType: StarType
-    private var particleEmitter: SKEmitterNode!
+    var photonRing: SKShapeNode!  // Accessible for rainbow effect
+    private var distortionRing: SKShapeNode?
     
     init(diameter: CGFloat = GameConstants.blackHoleInitialDiameter) {
         self.currentDiameter = diameter
@@ -21,7 +22,7 @@ class BlackHole: SKSpriteNode {
         
         self.name = "blackHole"
         setupPhysics()
-        setupParticleEmitter()
+        setupPhotonRing(diameter: diameter)
         addGlowEffect()
     }
     
@@ -40,51 +41,40 @@ class BlackHole: SKSpriteNode {
         physicsBody?.mass = radius * radius // Mass proportional to area
     }
     
-    private func setupParticleEmitter() {
-        particleEmitter = SKEmitterNode()
+    private func setupPhotonRing(diameter: CGFloat) {
+        let radius = diameter / 2
         
-        // Use programmatically created circle texture
-        particleEmitter.particleTexture = BlackHole.createParticleTexture()
+        // Thin colored ring right at the event horizon edge
+        photonRing = SKShapeNode(circleOfRadius: radius * 1.01)
+        photonRing.fillColor = .clear
+        photonRing.strokeColor = targetType.uiColor  // Target color indicator
+        photonRing.lineWidth = 3  // Thin, visible line
+        photonRing.glowWidth = 6  // Soft glow
+        photonRing.zPosition = 1  // Above black hole
+        photonRing.blendMode = .add
+        photonRing.isAntialiased = true
         
-        particleEmitter.particleBirthRate = 80
-        particleEmitter.numParticlesToEmit = 0 // Infinite
-        particleEmitter.particleLifetime = 1.2
-        particleEmitter.particleLifetimeRange = 0.4
-        particleEmitter.emissionAngle = 0
-        particleEmitter.emissionAngleRange = CGFloat.pi * 2
-        particleEmitter.particleSpeed = 25
-        particleEmitter.particleSpeedRange = 15
-        particleEmitter.particleAlpha = 0.9
-        particleEmitter.particleAlphaRange = 0.1
-        particleEmitter.particleAlphaSpeed = -0.7
-        particleEmitter.particleScale = 0.4
-        particleEmitter.particleScaleRange = 0.15
-        particleEmitter.particleScaleSpeed = -0.15
-        particleEmitter.particleColor = targetType.uiColor
-        particleEmitter.particleColorBlendFactor = 1.0
-        particleEmitter.particleBlendMode = .add
-        particleEmitter.particlePosition = CGPoint.zero
-        particleEmitter.particlePositionRange = CGVector(dx: currentDiameter / 2 + 10, dy: currentDiameter / 2 + 10)
-        particleEmitter.zPosition = 1
+        // Add subtle pulse to make it noticeable
+        let pulse = SKAction.sequence([
+            SKAction.fadeAlpha(to: 1.0, duration: 0.8),
+            SKAction.fadeAlpha(to: 0.7, duration: 0.8)
+        ])
+        photonRing.run(SKAction.repeatForever(pulse))
         
-        addChild(particleEmitter)
-    }
-    
-    func setupParticleTargetNode() {
-        // Call this after black hole is added to scene
-        particleEmitter.targetNode = self.parent
+        addChild(photonRing)
     }
     
     private func addGlowEffect() {
-        // Dark glow around the black hole
+        // Subtle glow around the black hole
         let glowNode = SKShapeNode(circleOfRadius: currentDiameter / 2)
         glowNode.fillColor = .black
         glowNode.strokeColor = .white
-        glowNode.lineWidth = 2
-        glowNode.alpha = 0.3
-        glowNode.glowWidth = 10
+        glowNode.lineWidth = 1  // Thinner line
+        glowNode.alpha = 0.2    // More subtle
+        glowNode.glowWidth = 8  // Slightly less glow
         glowNode.zPosition = -1
         glowNode.name = "glow"
+        glowNode.isAntialiased = true  // Smooth edges
         addChild(glowNode)
     }
     
@@ -95,7 +85,11 @@ class BlackHole: SKSpriteNode {
     }
     
     func shrink() {
-        let newDiameter = max(currentDiameter * GameConstants.blackHoleShrinkMultiplier, GameConstants.blackHoleMinDiameter)
+        shrinkByMultiplier(GameConstants.blackHoleShrinkMultiplier)
+    }
+    
+    func shrinkByMultiplier(_ multiplier: CGFloat) {
+        let newDiameter = max(currentDiameter * multiplier, GameConstants.blackHoleMinDiameter)
         updateSize(to: newDiameter)
     }
     
@@ -113,17 +107,30 @@ class BlackHole: SKSpriteNode {
         
         // Update glow node size
         if let glowNode = childNode(withName: "glow") as? SKShapeNode {
-            let glowPath = CGPath(ellipseIn: CGRect(
-                x: -newDiameter / 2,
-                y: -newDiameter / 2,
-                width: newDiameter,
-                height: newDiameter
-            ), transform: nil)
+            let newRadius = newDiameter / 2
+            let glowPath = CGPath(
+                ellipseIn: CGRect(
+                    x: -newRadius, y: -newRadius,
+                    width: newRadius * 2, height: newRadius * 2
+                ),
+                transform: nil
+            )
             glowNode.path = glowPath
         }
         
-        // Update particle emitter range
-        updateParticleEmitterSize()
+        // Update photon ring
+        let newRadius = newDiameter / 2 * 1.01
+        let photonPath = CGPath(
+            ellipseIn: CGRect(
+                x: -newRadius, y: -newRadius,
+                width: newRadius * 2, height: newRadius * 2
+            ),
+            transform: nil
+        )
+        photonRing.path = photonPath
+        
+        // Update distortion effect (Phase 3)
+        updateDistortionEffect()
     }
     
     private func updatePhysicsBody() {
@@ -137,20 +144,15 @@ class BlackHole: SKSpriteNode {
         physicsBody?.mass = radius * radius
     }
     
-    private func updateParticleEmitterSize() {
-        let range = currentDiameter / 2 + 10
-        particleEmitter.particlePositionRange = CGVector(dx: range, dy: range)
-    }
-    
     func updateTargetType(to newType: StarType) {
         targetType = newType
         
-        // Smoothly transition particle color
+        // Smoothly transition photon ring color
         let colorAction = SKAction.customAction(withDuration: GameConstants.ringColorTransitionDuration) { [weak self] node, elapsedTime in
             guard let self = self else { return }
             let progress = elapsedTime / GameConstants.ringColorTransitionDuration
-            self.particleEmitter.particleColor = self.interpolateColor(
-                from: self.particleEmitter.particleColor,
+            self.photonRing.strokeColor = self.interpolateColor(
+                from: self.photonRing.strokeColor ?? newType.uiColor,
                 to: newType.uiColor,
                 progress: progress
             )
@@ -184,27 +186,92 @@ class BlackHole: SKSpriteNode {
         return currentDiameter <= GameConstants.blackHoleMinDiameter
     }
     
-    // Helper to create a circle texture
-    private static func createCircleTexture(diameter: CGFloat, color: UIColor) -> SKTexture {
-        let renderer = UIGraphicsImageRenderer(size: CGSize(width: diameter, height: diameter))
-        let image = renderer.image { context in
-            color.setFill()
-            let rect = CGRect(x: 0, y: 0, width: diameter, height: diameter)
-            context.cgContext.fillEllipse(in: rect)
+    // MARK: - Distortion Ring Effect (Phase 3)
+    
+    private func updateDistortionEffect() {
+        if currentDiameter > 150 && distortionRing == nil {
+            // Only create for large black holes (>150pt)
+            let radius = currentDiameter / 2 * 1.2  // Just 20% larger
+            
+            distortionRing = SKShapeNode(circleOfRadius: radius)
+            distortionRing?.fillColor = .clear
+            distortionRing?.strokeColor = UIColor.white.withAlphaComponent(0.1)
+            distortionRing?.lineWidth = 2
+            distortionRing?.glowWidth = 10
+            distortionRing?.zPosition = -1  // Behind black hole
+            distortionRing?.blendMode = .add
+            distortionRing?.isAntialiased = true
+            
+            // Subtle wave effect
+            let wave = SKAction.sequence([
+                SKAction.fadeAlpha(to: 0.15, duration: 2.0),
+                SKAction.fadeAlpha(to: 0.05, duration: 2.0)
+            ])
+            distortionRing?.run(SKAction.repeatForever(wave))
+            
+            addChild(distortionRing!)
+            
+        } else if currentDiameter <= 150 && distortionRing != nil {
+            // Remove if black hole shrinks below threshold
+            distortionRing?.removeFromParent()
+            distortionRing = nil
+            
+        } else if let ring = distortionRing {
+            // Update size for existing ring
+            let newRadius = currentDiameter / 2 * 1.2
+            let newPath = CGPath(
+                ellipseIn: CGRect(
+                    x: -newRadius, y: -newRadius,
+                    width: newRadius * 2, height: newRadius * 2
+                ),
+                transform: nil
+            )
+            ring.path = newPath
         }
-        return SKTexture(image: image)
     }
     
-    // Helper to create particle texture
-    private static func createParticleTexture() -> SKTexture {
-        let size: CGFloat = 8
-        let renderer = UIGraphicsImageRenderer(size: CGSize(width: size, height: size))
+    // MARK: - Helper Methods
+    
+    // Helper to create a circle texture
+    private static func createCircleTexture(diameter: CGFloat, color: UIColor) -> SKTexture {
+        // Generate at FIXED high resolution regardless of diameter
+        // This allows smooth scaling both up and down
+        let textureSize: CGFloat = 200  // Fixed size for all black holes
+        
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: textureSize, height: textureSize))
         let image = renderer.image { context in
-            UIColor.white.setFill()
-            let rect = CGRect(x: 0, y: 0, width: size, height: size)
+            let rect = CGRect(x: 0, y: 0, width: textureSize, height: textureSize)
+            let center = CGPoint(x: textureSize / 2, y: textureSize / 2)
+            let radius = textureSize / 2
+            
+            // Draw solid black circle
+            color.setFill()
             context.cgContext.fillEllipse(in: rect)
+            
+            // Add subtle gradient for depth
+            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colors: [CGColor] = [
+                color.cgColor,
+                color.withAlphaComponent(0.95).cgColor
+            ]
+            let locations: [CGFloat] = [0.0, 1.0]
+            
+            if let gradient = CGGradient(colorsSpace: colorSpace, colors: colors as CFArray, locations: locations) {
+                context.cgContext.drawRadialGradient(
+                    gradient,
+                    startCenter: center,
+                    startRadius: 0,
+                    endCenter: center,
+                    endRadius: radius,
+                    options: []
+                )
+            }
         }
-        return SKTexture(image: image)
+        
+        let texture = SKTexture(image: image)
+        texture.filteringMode = .linear  // CRITICAL: enables smooth scaling
+        return texture
     }
+    
 }
 
