@@ -507,7 +507,8 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             }
             
             // Check 2: Distance from other large stars (prevents clustering)
-            if isValidSpawnPosition(spawnPosition, forStarSize: star.size.width) {
+            // Skip this check for red supergiants - they're rare enough (5-40% spawn rate)
+            if starType == .redSupergiant || isValidSpawnPosition(spawnPosition, forStarSize: star.size.width) {
                 validPosition = spawnPosition
             } else {
                 attempts += 1
@@ -529,9 +530,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     
     private func calculateMinSpawnDistance(for star: Star) -> CGFloat {
         // Larger stars need more minimum distance
-        // Small stars: 100pt minimum
-        // Large stars: 200-300pt minimum
-        return max(GameConstants.starMinSpawnDistance, star.size.width * 2.5)
+        // Cap the multiplier so giant stars (>200pt) don't need insane distances
+        let multiplier = star.size.width > 200 ? 1.5 : 2.5
+        return max(GameConstants.starMinSpawnDistance, star.size.width * multiplier)
     }
     
     private func isValidSpawnPosition(_ position: CGPoint, forStarSize size: CGFloat) -> Bool {
