@@ -418,6 +418,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             let starType = selectStarType()
             let star = Star(type: starType)
             
+            // Assign unique name for haptic tracking
+            star.name = "star_\(UUID().uuidString)"
+            
             // Spawn in a ring around player (250-400pt away)
             let angle = CGFloat.random(in: 0...(2 * .pi))
             let distance = CGFloat.random(in: 250...400)
@@ -451,8 +454,8 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     }
     
     private func scheduleNextColorChange() {
-        // Random interval between 5-12 seconds
-        let interval = TimeInterval.random(in: 5.0...12.0)
+        // Random interval between min and max
+        let interval = TimeInterval.random(in: GameConstants.colorChangeMinInterval...GameConstants.colorChangeMaxInterval)
         
         colorChangeTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: false) { [weak self] _ in
             self?.changeTargetColor()
@@ -485,6 +488,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         // Select star type based on black hole size
         let starType = selectStarType()
         let star = Star(type: starType)
+        
+        // Assign unique name for haptic tracking
+        star.name = "star_\(UUID().uuidString)"
         
         // Try multiple positions to find valid spawn location
         var validPosition: CGPoint?
@@ -565,11 +571,12 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             else { return .blueGiant }                    // 30% (45-58pt)
             
         } else if size < 130 {
-            // Phase 4: Introduce orange (100-130pt) - Some oranges edible
-            if random < 0.25 { return .whiteDwarf }      // 25% (18-28pt)
-            else if random < 0.45 { return .yellowDwarf } // 20% (32-42pt)
-            else if random < 0.75 { return .blueGiant }   // 30% (45-58pt)
-            else { return .orangeGiant }                  // 25% (90-140pt - risky!)
+            // Phase 4: Introduce orange (100-130pt) - Some oranges edible, rare red giants
+            if random < 0.2375 { return .whiteDwarf }      // 23.75% (18-28pt)
+            else if random < 0.4275 { return .yellowDwarf } // 19% (32-42pt)
+            else if random < 0.7125 { return .blueGiant }   // 28.5% (45-58pt)
+            else if random < 0.95 { return .orangeGiant }   // 23.75% (90-140pt - risky!)
+            else { return .redSupergiant }                  // 5% (280-600pt - VERY DANGEROUS!)
             
         } else if size < 600 {
             // Phase 5: All types (130-600pt) - Full game unlocked
@@ -698,10 +705,12 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     }
     
     private func removeDistantStars() {
-        // Remove stars too far from black hole (not screen center)
+        // Scale removal distance with black hole size (larger black holes have larger gravity range)
+        let removalDistance = max(GameConstants.starMaxDistanceFromScreen, blackHole.currentDiameter * 10)
+        
         stars.removeAll { star in
             let dist = distance(from: star.position, to: blackHole.position)
-            if dist > GameConstants.starMaxDistanceFromScreen {
+            if dist > removalDistance {
                 star.removeFromParent()
                 return true
             }
@@ -783,6 +792,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             GameManager.shared.addScore(points)
             AudioManager.shared.playCorrectSound()
             AudioManager.shared.playGrowSound()
+            
+            // Haptic feedback for correct consumption
+            HapticManager.shared.playCorrectStarHaptic(starSize: star.size.width)
         } else {
             // Wrong type: check grace period first
             let currentTime = CACurrentMediaTime()
@@ -806,6 +818,10 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
                 GameManager.shared.addScore(GameConstants.wrongColorPenalty)
                 AudioManager.shared.playWrongSound()
                 AudioManager.shared.playShrinkSound()
+                
+                // Haptic feedback for wrong consumption
+                let isInDangerZone = blackHole.currentDiameter < 40
+                HapticManager.shared.playWrongStarHaptic(isInDangerZone: isInDangerZone)
                 
                 // Check for game over
                 if blackHole.isAtMinimumSize() {
@@ -1030,6 +1046,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         
         // Play sound
         AudioManager.shared.playPowerUpCollectSound()
+        
+        // Haptic feedback for power-up
+        HapticManager.shared.playPowerUpHaptic(type: powerUp.type)
         
         print("💎 Collected \(powerUp.type.displayName) power-up!")
     }
@@ -1537,8 +1556,18 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             // If star is too large and getting close, show warning
             if !blackHole.canConsume(star) && dist < GameConstants.starWarningDistance {
                 star.showWarningGlow()
+                
+                // Haptic warning for dangerous star
+                if let starName = star.name {
+                    HapticManager.shared.startDangerProximityHaptic(starID: starName, distance: dist)
+                }
             } else {
                 star.hideWarningGlow()
+                
+                // Stop haptic warning
+                if let starName = star.name {
+                    HapticManager.shared.stopDangerProximityHaptic(starID: starName)
+                }
             }
         }
     }
@@ -1595,6 +1624,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     
     private func triggerGameOver() {
         isGameOver = true
+        
+        // Stop all danger proximity haptics
+        HapticManager.shared.stopAllDangerProximityHaptics()
         
         // Stop timers
         starSpawnTimer?.invalidate()

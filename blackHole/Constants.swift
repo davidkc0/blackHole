@@ -46,7 +46,7 @@ enum GameConstants {
     static let spawnAccelerationThreshold: CGFloat = 200       // When acceleration begins
     static let spawnAccelerationFactor: CGFloat = 400          // Rate of acceleration
     static let starSpawnInterval: TimeInterval = 0.6           // Legacy constant (kept for compatibility)
-    static let starMaxCount: Int = 30
+    static let starMaxCount: Int = 40
     static let starMinSpawnDistance: CGFloat = 100
     static let starSpawnAnimationDuration: TimeInterval = 0.2
     static let starFadeOutDuration: TimeInterval = 0.1
@@ -76,7 +76,8 @@ enum GameConstants {
     static let wrongColorPenalty: Int = -50
     
     // Color Change
-    static let colorChangeInterval: TimeInterval = 8.0
+    static let colorChangeMinInterval: TimeInterval = 5.0
+    static let colorChangeMaxInterval: TimeInterval = 12.0
     
     // Star-to-Star Interactions
     static let starGravityMultiplier: CGFloat = 0.15

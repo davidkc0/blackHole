@@ -14,6 +14,9 @@ class GameViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         
+        // Warm up haptic generators
+        _ = HapticManager.shared
+        
         if let view = self.view as! SKView? {
             // Create the scene programmatically
             let scene = GameScene(size: view.bounds.size)
