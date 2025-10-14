@@ -179,17 +179,14 @@ class BlackHole: SKSpriteNode {
         // Calculate relative size (0.0 to 1.0, where 1.0 = star is same size as black hole)
         let relativeSize = starSize / currentDiameter
         
-        // Base growth: 5% to 30% based on relative size
-        // Small stars (25% of black hole size) = 12.5% growth
-        // Medium stars (50% of black hole size) = 20% growth
-        // Large stars (75% of black hole size) = 27.5% growth
-        let baseGrowth = 0.05 + (relativeSize * 0.25)
+        // Base growth: 3% to 20% based on relative size (cozy pacing)
+        // Small stars (25% of black hole size) = 7.25% growth
+        // Medium stars (50% of black hole size) = 11.5% growth
+        // Large stars (75% of black hole size) = 15.75% growth
+        let baseGrowth = 0.03 + (relativeSize * 0.17)
         
         // Diminishing returns for very large black holes
-        // At 0pt: multiplier = 1.0 (no penalty)
-        // At 400pt: multiplier = 0.5 (50% penalty)
-        // At 800pt+: multiplier = 0.3 (70% penalty, minimum)
-        let sizePenalty = max(0.3, 1.0 - (currentDiameter / 800.0))
+       let sizePenalty = 1.0 / (1.0 + (currentDiameter / 600.0))
         
         // Combine base growth with size penalty
         let adjustedGrowth = baseGrowth * sizePenalty

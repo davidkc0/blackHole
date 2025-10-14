@@ -143,9 +143,9 @@ enum StarType: CaseIterable {
         case .blueGiant:
             return 55...75        // Larger (+17pt max)
         case .orangeGiant:
-            return 120...200      // Much larger (+60pt max)
+            return 120...300      // Much larger (+80pt max increase)
         case .redSupergiant:
-            return 280...600      // MASSIVE (+200pt max!)
+            return 280...900      // MASSIVE (+300pt max increase!)
         }
     }
     

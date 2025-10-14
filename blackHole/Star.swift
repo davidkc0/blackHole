@@ -240,7 +240,9 @@ class Star: SKSpriteNode {
         // Don't add if already showing
         guard warningGlow == nil else { return }
         
-        let glow = SKShapeNode(circleOfRadius: size.width / 2 + 5)
+        // Match the star's actual visual footprint (outer corona size + buffer)
+        // Outer corona is 4x the core size, so radius is 2x core radius + buffer
+        let glow = SKShapeNode(circleOfRadius: size.width + 10)
         glow.strokeColor = .red
         glow.lineWidth = 3
         glow.fillColor = .clear

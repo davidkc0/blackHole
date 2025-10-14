@@ -529,10 +529,21 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     }
     
     private func calculateMinSpawnDistance(for star: Star) -> CGFloat {
-        // Larger stars need more minimum distance
-        // Cap the multiplier so giant stars (>200pt) don't need insane distances
-        let multiplier = star.size.width > 200 ? 1.5 : 2.5
-        return max(GameConstants.starMinSpawnDistance, star.size.width * multiplier)
+        let starSize = star.size.width
+        
+        // Progressive distance scaling based on star size
+        let multiplier: CGFloat
+        if starSize <= 100 {
+            multiplier = 3.0      // Small stars: 3x distance
+        } else if starSize <= 200 {
+            multiplier = 4.0      // Medium stars: 4x distance  
+        } else if starSize <= 400 {
+            multiplier = 5.0      // Large stars: 5x distance
+        } else {
+            multiplier = 6.0      // Giant stars: 6x distance
+        }
+        
+        return max(GameConstants.starMinSpawnDistance, starSize * multiplier)
     }
     
     private func isValidSpawnPosition(_ position: CGPoint, forStarSize size: CGFloat) -> Bool {

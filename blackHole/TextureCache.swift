@@ -185,9 +185,18 @@ class TextureCache {
         let renderer = UIGraphicsImageRenderer(size: CGSize(width: size, height: size))
         
         let image = renderer.image { context in
-            UIColor.white.setFill()
-            let rect = CGRect(x: 0, y: 0, width: size, height: size)
-            context.cgContext.fillEllipse(in: rect)
+            let ctx = context.cgContext
+            
+            // Clear background first
+            ctx.clear(CGRect(x: 0, y: 0, width: size, height: size))
+            
+            // Enable anti-aliasing
+            ctx.setAllowsAntialiasing(true)
+            ctx.setShouldAntialias(true)
+            
+            // Draw simple solid white circle
+            ctx.setFillColor(UIColor.white.cgColor)
+            ctx.fillEllipse(in: CGRect(x: 0, y: 0, width: size, height: size))
         }
         
         return SKTexture(image: image)
