@@ -78,10 +78,42 @@ class BlackHole: SKSpriteNode {
         addChild(glowNode)
     }
     
+    @available(*, deprecated, message: "Use growByConsumingStar(_ star:) for relative size-based growth")
     func grow() {
-        // Remove the min() cap - allow infinite growth
+        // Fallback to fixed multiplier if needed
         let newDiameter = currentDiameter * GameConstants.blackHoleGrowthMultiplier
         updateSize(to: newDiameter)
+    }
+    
+    func growByConsumingStar(_ star: Star) {
+        let growthMultiplier = calculateGrowthMultiplier(starSize: star.size.width)
+        let newDiameter = currentDiameter * growthMultiplier
+        updateSize(to: newDiameter)
+    }
+    
+    private func calculateGrowthMultiplier(starSize: CGFloat) -> CGFloat {
+        // Calculate relative size (0.0 to 1.0, where 1.0 = star is same size as black hole)
+        let relativeSize = starSize / currentDiameter
+        
+        // Base growth: 5% to 30% based on relative size
+        // Small stars (25% of black hole size) = 12.5% growth
+        // Medium stars (50% of black hole size) = 20% growth
+        // Large stars (75% of black hole size) = 27.5% growth
+        let baseGrowth = 0.05 + (relativeSize * 0.25)
+        
+        // Diminishing returns for very large black holes
+        // At 0pt: multiplier = 1.0 (no penalty)
+        // At 400pt: multiplier = 0.5 (50% penalty)
+        // At 800pt+: multiplier = 0.3 (70% penalty, minimum)
+        let sizePenalty = max(0.3, 1.0 - (currentDiameter / 800.0))
+        
+        // Combine base growth with size penalty
+        let adjustedGrowth = baseGrowth * sizePenalty
+        
+        // Debug logging
+        print("📊 Growth calc: BH=\(String(format: "%.0f", currentDiameter))pt, Star=\(String(format: "%.0f", starSize))pt, Rel=\(String(format: "%.1f", relativeSize * 100))%, Base=\(String(format: "%.1f", baseGrowth * 100))%, Penalty=\(String(format: "%.1f", sizePenalty * 100))%, Final=\(String(format: "%.1f", adjustedGrowth * 100))%")
+        
+        return 1.0 + adjustedGrowth
     }
     
     func shrink() {

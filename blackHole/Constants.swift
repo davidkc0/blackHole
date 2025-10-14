@@ -13,10 +13,18 @@ enum GameConstants {
     static let blackHoleInitialDiameter: CGFloat = 40
     static let blackHoleMinDiameter: CGFloat = 30
     static let blackHoleMaxDiameter: CGFloat = 10000  // Effectively unlimited
-    static let blackHoleGrowthMultiplier: CGFloat = 1.15
     static let blackHoleShrinkMultiplier: CGFloat = 0.8
     static let blackHoleSizeAnimationDuration: TimeInterval = 0.2
     static let blackHoleScreenPadding: CGFloat = 30
+    
+    // Growth System
+    static let minGrowthPercent: CGFloat = 0.05        // 5% minimum growth
+    static let maxGrowthPercent: CGFloat = 0.30        // 30% maximum growth
+    static let sizePenaltyThreshold: CGFloat = 800     // Size where max penalty applies
+    static let minSizePenalty: CGFloat = 0.3           // Minimum 30% of base growth
+    
+    // Legacy (for backward compatibility)
+    static let blackHoleGrowthMultiplier: CGFloat = 1.15  // Deprecated
     
     // Camera Zoom
     static let cameraZoomTargetPercentage: CGFloat = 0.28  // Black hole takes 28% of screen
@@ -191,7 +199,7 @@ enum StarType: CaseIterable {
 }
 
 extension UIColor {
-    static let spaceBackground = UIColor(hex: "#120e42") 
+    static let spaceBackground = UIColor(hex: "#000000")  // Pure black 
     
     convenience init(hex: String) {
         let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)

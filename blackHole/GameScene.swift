@@ -31,8 +31,7 @@ class ActivePowerUpState {
         guard isActive() else { return false }
         
         if currentTime >= expirationTime {
-            deactivate()
-            return true
+            return true  // Don't deactivate yet - let handlePowerUpExpiration do it
         }
         return false
     }
@@ -51,7 +50,8 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     private var stars: [Star] = []
     private var cameraNode: SKCameraNode!
     private var hudNode: SKNode!
-    private var backgroundStars: [SKSpriteNode] = []
+    private var backgroundLayers: [[SKSpriteNode]] = [[], [], []]  // Far, mid, near layers
+    private var nebulaNode: SKSpriteNode?  // Distant nebula gradient for atmosphere
     
     var powerUpManager: PowerUpManager!
     var activePowerUp = ActivePowerUpState()
@@ -100,6 +100,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         setupUI()
         setupPowerUpUI()
         startGameTimers()
+        
+        // Initialize background star positions relative to camera
+        updateBackgroundStars()
     }
     
     private func setupPowerUpSystem() {
@@ -112,6 +115,59 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         backgroundColor = UIColor.spaceBackground
         physicsWorld.gravity = CGVector(dx: 0, dy: 0)
         physicsWorld.contactDelegate = self
+        
+        // Setup nebula gradient background
+        setupNebula()
+    }
+    
+    private func setupNebula() {
+        // Create subtle nebula gradient texture
+        let nebulaTexture = createNebulaTexture()
+        nebulaNode = SKSpriteNode(texture: nebulaTexture)
+        nebulaNode?.size = CGSize(width: 3000, height: 3000)
+        nebulaNode?.position = CGPoint.zero
+        nebulaNode?.zPosition = -50  // Behind all stars
+        nebulaNode?.alpha = 0.35  // Very subtle
+        nebulaNode?.blendMode = .alpha
+        addChild(nebulaNode!)
+    }
+    
+    private func createNebulaTexture() -> SKTexture {
+        let size = CGSize(width: 512, height: 512)
+        let renderer = UIGraphicsImageRenderer(size: size)
+        
+        let image = renderer.image { context in
+            let cgContext = context.cgContext
+            
+            // Create radial gradient (dark purple center fading to transparent)
+            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colors = [
+                UIColor(red: 0.1, green: 0.04, blue: 0.18, alpha: 1.0).cgColor,  // Dark purple center
+                UIColor(red: 0.08, green: 0.05, blue: 0.15, alpha: 0.8).cgColor, // Mid purple
+                UIColor(red: 0.06, green: 0.06, blue: 0.12, alpha: 0.4).cgColor, // Darker mid
+                UIColor(red: 0.04, green: 0.04, blue: 0.08, alpha: 0.0).cgColor  // Transparent edge
+            ] as CFArray
+            
+            let locations: [CGFloat] = [0.0, 0.3, 0.6, 1.0]
+            
+            guard let gradient = CGGradient(colorsSpace: colorSpace, colors: colors, locations: locations) else {
+                return
+            }
+            
+            let center = CGPoint(x: size.width / 2, y: size.height / 2)
+            let radius = size.width / 2
+            
+            cgContext.drawRadialGradient(
+                gradient,
+                startCenter: center,
+                startRadius: 0,
+                endCenter: center,
+                endRadius: radius,
+                options: [.drawsBeforeStartLocation, .drawsAfterEndLocation]
+            )
+        }
+        
+        return SKTexture(image: image)
     }
     
     private func setupCamera() {
@@ -125,46 +181,144 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     }
     
     private func setupBackgroundStars() {
-        // Create a field of background stars for visual depth
-        let starCount = 100
-        let spread: CGFloat = 2000
+        // Multi-layer parallax starfield for realistic depth
         
-        for _ in 0..<starCount {
-            let starSize = CGFloat.random(in: 1...3)
-            let star = SKSpriteNode(color: .white, size: CGSize(width: starSize, height: starSize))
-            star.position = CGPoint(
-                x: CGFloat.random(in: -spread...spread),
-                y: CGFloat.random(in: -spread...spread)
-            )
-            star.alpha = CGFloat.random(in: 0.3...0.8)
-            star.zPosition = -10
-            addChild(star)
-            backgroundStars.append(star)
+        // Layer 0: Distant stars (darkest, slowest parallax)
+        createStarLayer(
+            count: 400,  // DOUBLED for much richer starfield
+            sizeRange: 0.8...1.5,  // Keep size same
+            alphaRange: 0.3...0.5,  // Brighter for visibility
+            useColorVariety: true,
+            zPosition: -30,
+            layerIndex: 0
+        )
+        
+        // Layer 1: Mid-distance stars (moderate brightness and parallax)
+        createStarLayer(
+            count: 250,  // More than doubled for density
+            sizeRange: 1.5...2.5,  // Keep size same
+            alphaRange: 0.5...0.7,  // Brighter
+            useColorVariety: true,
+            zPosition: -20,
+            layerIndex: 1
+        )
+        
+        // Layer 2: Near stars (brightest, fastest parallax)
+        createStarLayer(
+            count: 150,  // Nearly doubled for better foreground
+            sizeRange: 2.5...3.0,  // Keep size same
+            alphaRange: 0.7...0.9,  // Much brighter for visibility
+            useColorVariety: false,  // Near stars stay white for clarity
+            zPosition: -10,
+            layerIndex: 2
+        )
+    }
+    
+    private func createStarLayer(count: Int, sizeRange: ClosedRange<CGFloat>,
+                                alphaRange: ClosedRange<CGFloat>, useColorVariety: Bool,
+                                zPosition: CGFloat, layerIndex: Int) {
+        let spread: CGFloat = 1500  // Tighter spread for denser starfield
+        
+        // Realistic star color palette (mostly white, some tinted)
+        let starColors: [(UIColor, CGFloat)] = [
+            (.white, 0.65),                                                      // 65% white
+            (UIColor(red: 0.8, green: 0.9, blue: 1.0, alpha: 1.0), 0.15),      // 15% blue-white
+            (UIColor(red: 1.0, green: 0.95, blue: 0.8, alpha: 1.0), 0.12),     // 12% yellow-white
+            (UIColor(red: 1.0, green: 0.85, blue: 0.7, alpha: 1.0), 0.05),     // 5% orange
+            (UIColor(red: 1.0, green: 0.7, blue: 0.7, alpha: 1.0), 0.03)       // 3% red
+        ]
+        
+        for _ in 0..<count {
+            let starSize = CGFloat.random(in: sizeRange)
+            let color = useColorVariety ? selectWeightedStarColor(colors: starColors) : .white
+            let star = SKSpriteNode(color: color, size: CGSize(width: starSize, height: starSize))
             
-            // Twinkle animation
-            let fadeOut = SKAction.fadeAlpha(to: 0.2, duration: Double.random(in: 1...3))
-            let fadeIn = SKAction.fadeAlpha(to: star.alpha, duration: Double.random(in: 1...3))
+            // Store base position in userData for parallax calculation
+            let baseX = CGFloat.random(in: -spread...spread)
+            let baseY = CGFloat.random(in: -spread...spread)
+            
+            star.userData = [
+                "baseX": baseX,
+                "baseY": baseY
+            ]
+            
+            star.position = CGPoint(x: baseX, y: baseY)
+            star.alpha = CGFloat.random(in: alphaRange)
+            star.zPosition = zPosition
+            addChild(star)
+            backgroundLayers[layerIndex].append(star)
+            
+            // Slower, subtler twinkle for background (won't distract)
+            let twinkleDuration = Double.random(in: 2...5)
+            let fadeOut = SKAction.fadeAlpha(to: alphaRange.lowerBound, duration: twinkleDuration)
+            let fadeIn = SKAction.fadeAlpha(to: star.alpha, duration: twinkleDuration)
             star.run(SKAction.repeatForever(SKAction.sequence([fadeOut, fadeIn])))
         }
     }
     
-    private func updateBackgroundStars() {
-        // Reposition background stars that are too far from camera
-        let maxDistance: CGFloat = 1500
+    private func selectWeightedStarColor(colors: [(UIColor, CGFloat)]) -> UIColor {
+        let random = CGFloat.random(in: 0...1)
+        var cumulative: CGFloat = 0
         
-        for star in backgroundStars {
-            let dx = star.position.x - cameraNode.position.x
-            let dy = star.position.y - cameraNode.position.y
-            let distance = sqrt(dx * dx + dy * dy)
+        for (color, weight) in colors {
+            cumulative += weight
+            if random <= cumulative {
+                return color
+            }
+        }
+        return colors[0].0  // Fallback to white
+    }
+    
+    private func updateBackgroundStars() {
+        // Update nebula with very slow parallax
+        nebulaNode?.position = CGPoint(
+            x: cameraNode.position.x * 0.1,
+            y: cameraNode.position.y * 0.1
+        )
+        
+        let parallaxFactors: [CGFloat] = [0.3, 0.6, 1.0]  // How much each layer moves with camera
+        let wrapDistance: CGFloat = 1500  // When to wrap stars
+        
+        for (layerIndex, layer) in backgroundLayers.enumerated() {
+            let parallaxFactor = parallaxFactors[layerIndex]
             
-            if distance > maxDistance {
-                // Reposition to the opposite side
-                let angle = atan2(dy, dx) + .pi
-                let newDistance: CGFloat = 1000
+            for star in layer {
+                // Get star's base world position
+                guard let baseX = star.userData?["baseX"] as? CGFloat,
+                      let baseY = star.userData?["baseY"] as? CGFloat else { continue }
+                
+                // Calculate parallax offset from camera position
+                // Far stars (0.3) move only 30% as much as camera = slower = more distant
+                let offsetX = cameraNode.position.x * (1 - parallaxFactor)
+                let offsetY = cameraNode.position.y * (1 - parallaxFactor)
+                
+                // Position star in world space with parallax offset
                 star.position = CGPoint(
-                    x: cameraNode.position.x + cos(angle) * newDistance,
-                    y: cameraNode.position.y + sin(angle) * newDistance
+                    x: baseX - offsetX,
+                    y: baseY - offsetY
                 )
+                
+                // Wrap stars that go too far from camera
+                var newBaseX = baseX
+                var newBaseY = baseY
+                
+                let distFromCamera = hypot(star.position.x - cameraNode.position.x,
+                                          star.position.y - cameraNode.position.y)
+                
+                if distFromCamera > wrapDistance {
+                    // Star is too far - wrap it to opposite side
+                    let angle = atan2(star.position.y - cameraNode.position.y,
+                                     star.position.x - cameraNode.position.x)
+                    let oppositeAngle = angle + .pi
+                    let wrapRadius: CGFloat = 1000
+                    
+                    // Calculate new base position (reverse the parallax math)
+                    newBaseX = cameraNode.position.x + cos(oppositeAngle) * wrapRadius + offsetX
+                    newBaseY = cameraNode.position.y + sin(oppositeAngle) * wrapRadius + offsetY
+                    
+                    star.userData?["baseX"] = newBaseX
+                    star.userData?["baseY"] = newBaseY
+                }
             }
         }
     }
@@ -193,9 +347,10 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         scoreLabel.fontSize = GameConstants.scoreFontSize
         scoreLabel.fontColor = .white
         
-        // Position relative to camera view
-        let xOffset = -size.width / 2 + GameConstants.scoreLabelLeftMargin
-        let yOffset = size.height / 2 - GameConstants.scoreLabelTopMargin - GameConstants.scoreFontSize
+        // Position relative to camera view using screen bounds (not world size)
+        let screenSize = UIScreen.main.bounds.size
+        let xOffset = -screenSize.width / 2 + GameConstants.scoreLabelLeftMargin
+        let yOffset = screenSize.height / 2 - GameConstants.scoreLabelTopMargin - GameConstants.scoreFontSize
         scoreLabel.position = CGPoint(x: xOffset, y: yOffset)
         scoreLabel.horizontalAlignmentMode = .left
         scoreLabel.zPosition = 100
@@ -216,8 +371,10 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     private func setupPowerUpUI() {
         // Container for power-up indicator (top-right)
         let container = SKNode()
-        let xOffset = size.width / 2 - 70
-        let yOffset = size.height / 2 - 50
+        // Position relative to camera view using screen bounds (not world size)
+        let screenSize = UIScreen.main.bounds.size
+        let xOffset = screenSize.width / 2 - 70
+        let yOffset = screenSize.height / 2 - 50
         container.position = CGPoint(x: xOffset, y: yOffset)
         container.name = "powerUpContainer"
         hudNode.addChild(container)
@@ -243,11 +400,45 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     }
     
     private func startGameTimers() {
+        // Spawn initial stars immediately for better UX
+        spawnInitialStars()
+        
         // Dynamic spawn timer that adjusts with black hole size
         scheduleNextStarSpawn()
         
         // Color change timer with random intervals
         scheduleNextColorChange()
+    }
+    
+    private func spawnInitialStars() {
+        // Guarantee 3-5 stars at game start
+        let initialStarCount = Int.random(in: 3...5)
+        
+        for _ in 0..<initialStarCount {
+            let starType = selectStarType()
+            let star = Star(type: starType)
+            
+            // Spawn in a ring around player (250-400pt away)
+            let angle = CGFloat.random(in: 0...(2 * .pi))
+            let distance = CGFloat.random(in: 250...400)
+            
+            star.position = CGPoint(
+                x: blackHole.position.x + cos(angle) * distance,
+                y: blackHole.position.y + sin(angle) * distance
+            )
+            
+            // Fade in animation
+            star.alpha = 0
+            star.setScale(0.3)
+            let fadeIn = SKAction.fadeIn(withDuration: GameConstants.starSpawnAnimationDuration)
+            let scaleUp = SKAction.scale(to: 1.0, duration: GameConstants.starSpawnAnimationDuration)
+            star.run(SKAction.group([fadeIn, scaleUp]))
+            
+            addChild(star)
+            stars.append(star)
+        }
+        
+        print("🌟 Spawned \(initialStarCount) initial stars")
     }
     
     private func scheduleNextStarSpawn() {
@@ -295,20 +486,63 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         let starType = selectStarType()
         let star = Star(type: starType)
         
-        // Spawn at random edge
-        let spawnPosition = randomEdgePosition()
+        // Try multiple positions to find valid spawn location
+        var validPosition: CGPoint?
+        var attempts = 0
         
-        // Ensure star spawns away from black hole
-        guard distance(from: spawnPosition, to: blackHole.position) > GameConstants.starMinSpawnDistance else {
-            return // Try again next spawn interval
+        while validPosition == nil && attempts < 10 {
+            let spawnPosition = randomEdgePosition()
+            
+            // Check 1: Distance from black hole
+            let minDistanceFromBlackHole = calculateMinSpawnDistance(for: star)
+            guard distance(from: spawnPosition, to: blackHole.position) > minDistanceFromBlackHole else {
+                attempts += 1
+                continue
+            }
+            
+            // Check 2: Distance from other large stars (prevents clustering)
+            if isValidSpawnPosition(spawnPosition, forStarSize: star.size.width) {
+                validPosition = spawnPosition
+            } else {
+                attempts += 1
+            }
         }
         
-        star.position = spawnPosition
+        // If valid position found, spawn the star
+        guard let finalPosition = validPosition else {
+            return // No valid position found, try again next interval
+        }
+        
+        star.position = finalPosition
         star.zPosition = 5
         addChild(star)
         stars.append(star)
         
         star.playSpawnAnimation()
+    }
+    
+    private func calculateMinSpawnDistance(for star: Star) -> CGFloat {
+        // Larger stars need more minimum distance
+        // Small stars: 100pt minimum
+        // Large stars: 200-300pt minimum
+        return max(GameConstants.starMinSpawnDistance, star.size.width * 2.5)
+    }
+    
+    private func isValidSpawnPosition(_ position: CGPoint, forStarSize size: CGFloat) -> Bool {
+        // Only check against other large stars (> 80pt) to prevent death zones
+        let largeStars = stars.filter { $0.size.width > 80 }
+        
+        for existingStar in largeStars {
+            let dist = distance(from: position, to: existingStar.position)
+            // Buffer zone = combined radii + 150pt safety margin
+            let minSeparation = (size + existingStar.size.width) / 2 + 150
+            
+            if dist < minSeparation {
+                return false  // Too close to another large star
+            }
+        }
+        
+        return true
     }
     
     private func selectStarType() -> StarType {
@@ -515,6 +749,8 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     private func handleStarCollision(star: Star) {
         // FIRST CHECK: Is star too large?
         if !blackHole.canConsume(star) {
+            let rainbowActive = activePowerUp.activeType == .rainbow
+            print("🚫 Star too large! Size: \(String(format: "%.0f", star.size.width))pt, Black hole: \(String(format: "%.0f", blackHole.currentDiameter))pt, Rainbow active: \(rainbowActive)")
             // Game over - black hole destabilized!
             gameOverReason = "Black hole destabilized!"
             triggerGameOver()
@@ -527,8 +763,19 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         let canEatWithRainbow = rainbowActive && blackHole.canConsume(star)  // Rainbow allows any color but still respects size
         
         if isCorrectType || canEatWithRainbow {
-            // Correct type: grow and add score
-            blackHole.grow()
+            // Correct type: grow based on star size (NEW)
+            if rainbowActive && !isCorrectType {
+                print("🌈 Rainbow power-up: Eating \(star.starType.displayName) (size: \(String(format: "%.0f", star.size.width))pt) with rainbow - any color allowed")
+            }
+            
+            // NEW: Calculate growth based on star size
+            let beforeSize = blackHole.currentDiameter
+            blackHole.growByConsumingStar(star)  // ← NEW METHOD
+            let afterSize = blackHole.currentDiameter
+            let growthPercent = ((afterSize - beforeSize) / beforeSize) * 100
+            
+            print("📈 Growth: \(String(format: "%.0f", beforeSize))pt → \(String(format: "%.0f", afterSize))pt (+\(String(format: "%.1f", growthPercent))%)")
+            
             lastCorrectEatTime = CACurrentMediaTime()  // Track for grace period
             
             let multiplier = GameManager.shared.getScoreMultiplier(blackHoleDiameter: blackHole.currentDiameter)
@@ -796,6 +1043,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         case .rainbow:
             print("🌈 Rainbow Mode activated! Eat any color for \(type.duration)s")
             startRainbowPhotonRing()
+            print("🌈 Rainbow photon ring animation started")
             
         case .freeze:
             freezeAllStars()
@@ -804,7 +1052,10 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     }
     
     private func handlePowerUpExpiration() {
-        guard let type = activePowerUp.activeType else { return }
+        guard let type = activePowerUp.activeType else { 
+            print("⚠️ handlePowerUpExpiration called but no active power-up type!")
+            return 
+        }
         
         print("⏱️ Power-up expired: \(type.displayName)")
         
@@ -813,8 +1064,13 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             unfreezeAllStars()
         case .rainbow:
             // Restore normal photon ring
+            print("🌈 Rainbow Mode expired - stopping rainbow animation")
             stopRainbowPhotonRing()
+            print("🌈 Rainbow photon ring animation stopped and restored to target color")
         }
+        
+        // Deactivate the power-up AFTER handling the expiration
+        activePowerUp.deactivate()
         
         AudioManager.shared.playPowerUpExpireSound()
     }
@@ -832,6 +1088,8 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     }
     
     private func startRainbowPhotonRing() {
+        print("🌈 Starting rainbow animation...")
+        
         // Stop normal pulse animation
         blackHole.photonRing.removeAllActions()
         
@@ -854,14 +1112,25 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         }
         
         let cycle = SKAction.sequence(colorActions)
-        blackHole.photonRing.run(SKAction.repeatForever(cycle), withKey: "rainbowCycle")
+        let rainbowAction = SKAction.repeatForever(cycle)
+        blackHole.photonRing.run(rainbowAction, withKey: "rainbowCycle")
+        
+        print("🌈 Rainbow animation started with key: rainbowCycle")
     }
     
     private func stopRainbowPhotonRing() {
-        // Stop rainbow cycle
-        blackHole.photonRing.removeAction(forKey: "rainbowCycle")
+        print("🛑 Stopping rainbow animation...")
         
-        // Restore target color
+        // Stop rainbow cycle properly - remove ALL actions to ensure clean stop
+        blackHole.photonRing.removeAction(forKey: "rainbowCycle")
+        blackHole.photonRing.removeAllActions()
+        
+        // Force stop any running actions
+        blackHole.photonRing.removeAllActions()
+        
+        print("🛑 Actions removed, restoring target color: \(blackHole.targetType.displayName)")
+        
+        // Restore target color immediately
         blackHole.photonRing.strokeColor = blackHole.targetType.uiColor
         
         // Resume normal pulse animation
@@ -870,6 +1139,8 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             SKAction.fadeAlpha(to: 0.7, duration: 0.8)
         ])
         blackHole.photonRing.run(SKAction.repeatForever(pulse))
+        
+        print("🛑 Normal pulse animation restored")
     }
     
     private func showCollectionEffect(at position: CGPoint, type: PowerUpType) {
@@ -1215,24 +1486,37 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         guard GameConstants.enableStarMerging else { return }
         guard stars.count > 1 else { return }
         
+        // Pre-calculate constants (hoist out of loops)
+        let rangeSquared = GameConstants.starGravityRange * GameConstants.starGravityRange
+        let G_STAR = GameConstants.gravitationalConstant * GameConstants.starGravityMultiplier
+        
         for i in 0..<stars.count {
+            let star1 = stars[i]
+            let pos1 = star1.position  // Cache position
+            
             for j in (i+1)..<stars.count {
-                let star1 = stars[i]
                 let star2 = stars[j]
                 
-                let dist = distance(from: star1.position, to: star2.position)
-                guard dist < GameConstants.starGravityRange && dist > 0 else { continue }
+                // OPTIMIZATION: Fast distance check (no sqrt)
+                let dx = star2.position.x - pos1.x
+                let dy = star2.position.y - pos1.y
+                let distSquared = dx * dx + dy * dy
+                
+                // Early exit for distant stars (90% of cases) - avoids expensive sqrt
+                guard distSquared < rangeSquared && distSquared > 0 else { continue }
+                
+                // Only calculate real distance when needed
+                let dist = sqrt(distSquared)
                 
                 let radius1 = star1.size.width / 2
                 let radius2 = star2.size.width / 2
                 let mass1 = radius1 * radius1 * star1.starType.massMultiplier
                 let mass2 = radius2 * radius2 * star2.starType.massMultiplier
                 
-                let G_STAR = GameConstants.gravitationalConstant * GameConstants.starGravityMultiplier
-                let forceMagnitude = (G_STAR * mass1 * mass2) / (dist * dist)
+                // Use distSquared for force calculation (avoid another multiplication)
+                let forceMagnitude = (G_STAR * mass1 * mass2) / distSquared
                 
-                let dx = star2.position.x - star1.position.x
-                let dy = star2.position.y - star1.position.y
+                // Reuse dx/dy we already calculated
                 let forceX = (dx / dist) * forceMagnitude
                 let forceY = (dy / dist) * forceMagnitude
                 
