@@ -645,30 +645,35 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     private func getAvailableStarTypes() -> [StarType] {
         let size = blackHole.currentDiameter
         
+        // Determine base types for current phase
+        let phaseTypes: [StarType]
         if size < 50 {
             // Phase 1: White only
-            return [.whiteDwarf]
-            
+            phaseTypes = [.whiteDwarf]
         } else if size < 70 {
             // Phase 2: White + Yellow
-            return [.whiteDwarf, .yellowDwarf]
-            
+            phaseTypes = [.whiteDwarf, .yellowDwarf]
         } else if size < 100 {
             // Phase 3: White + Yellow + Blue
-            return [.whiteDwarf, .yellowDwarf, .blueGiant]
-            
+            phaseTypes = [.whiteDwarf, .yellowDwarf, .blueGiant]
         } else if size < 130 {
-            // Phase 4: Add Orange
-            return [.whiteDwarf, .yellowDwarf, .blueGiant, .orangeGiant]
-            
-        } else if size < 600 {
-            // Phase 5: All colors available
-            return StarType.allCases
-            
+            // Phase 4: Add Orange (Red spawns at 5% but usually uneatable)
+            phaseTypes = [.whiteDwarf, .yellowDwarf, .blueGiant, .orangeGiant]
         } else {
-            // Phase 6: Supermassive mode - all colors always available
-            return StarType.allCases
+            // Phase 5+: All colors available
+            phaseTypes = Array(StarType.allCases)
         }
+        
+        // Filter to only types that have at least one edible star currently on screen
+        let edibleTypes = phaseTypes.filter { type in
+            stars.contains { star in
+                star.starType == type && blackHole.canConsume(star)
+            }
+        }
+        
+        // Fallback: if no edible stars of phase types, use phase types
+        // (prevents indicator from going blank in edge cases)
+        return edibleTypes.isEmpty ? phaseTypes : edibleTypes
     }
     
     private func applyGravity() {

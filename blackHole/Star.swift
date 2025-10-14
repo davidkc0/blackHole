@@ -35,7 +35,6 @@ class Star: SKSpriteNode {
         // Get visual profile for this star
         self.visualProfile = VisualEffectProfile.profile(for: type, size: diameter)
         
-        self.name = "star"
         setupPhysics(diameter: diameter)
         setupMultiLayerVisuals()
         addInitialDrift()
