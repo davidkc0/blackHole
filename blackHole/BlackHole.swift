@@ -12,6 +12,9 @@ class BlackHole: SKSpriteNode {
     private(set) var targetType: StarType
     var photonRing: SKShapeNode!  // Accessible for rainbow effect
     private var distortionRing: SKShapeNode?
+    private var innerGlow: SKShapeNode?
+    private var outerGlow: SKShapeNode?
+    private var voidCore: SKShapeNode?
     
     init(diameter: CGFloat = GameConstants.blackHoleInitialDiameter) {
         self.currentDiameter = diameter
@@ -22,8 +25,10 @@ class BlackHole: SKSpriteNode {
         
         self.name = "blackHole"
         setupPhysics()
+        setupVoidCore(diameter: diameter)
+        setupMultiLayerGlow(diameter: diameter)
         setupPhotonRing(diameter: diameter)
-        addGlowEffect()
+        addGravitationalLensing(diameter: diameter)
     }
     
     required init?(coder aDecoder: NSCoder) {
@@ -41,41 +46,120 @@ class BlackHole: SKSpriteNode {
         physicsBody?.mass = radius * radius // Mass proportional to area
     }
     
+    // MARK: - Enhanced Visual Components
+    
+    private func setupVoidCore(diameter: CGFloat) {
+        let radius = diameter / 2
+        
+        voidCore = SKShapeNode(circleOfRadius: radius * 0.6)
+        voidCore?.fillColor = UIColor(red: 0.0, green: 0.0, blue: 0.05, alpha: 1.0)
+        voidCore?.strokeColor = .clear
+        voidCore?.zPosition = -2
+        voidCore?.blendMode = .multiply
+        voidCore?.alpha = 0.8
+        addChild(voidCore!)
+        
+        let voidPulse = SKAction.sequence([
+            SKAction.scale(to: 1.02, duration: 3.0),
+            SKAction.scale(to: 0.98, duration: 3.0)
+        ])
+        voidCore?.run(SKAction.repeatForever(voidPulse))
+    }
+    
+    private func setupMultiLayerGlow(diameter: CGFloat) {
+        let radius = diameter / 2
+        
+        // Inner glow
+        innerGlow = SKShapeNode(circleOfRadius: radius * 1.05)
+        innerGlow?.fillColor = .clear
+        innerGlow?.strokeColor = UIColor(red: 0.4, green: 0.5, blue: 1.0, alpha: 1.0)
+        innerGlow?.lineWidth = 2
+        innerGlow?.glowWidth = 15
+        innerGlow?.alpha = 0.3
+        innerGlow?.zPosition = -1
+        innerGlow?.blendMode = .add
+        innerGlow?.isAntialiased = true
+        addChild(innerGlow!)
+        
+        // Outer glow
+        outerGlow = SKShapeNode(circleOfRadius: radius * 1.15)
+        outerGlow?.fillColor = .clear
+        outerGlow?.strokeColor = UIColor(red: 0.6, green: 0.7, blue: 1.0, alpha: 1.0)
+        outerGlow?.lineWidth = 1
+        outerGlow?.glowWidth = 25
+        outerGlow?.alpha = 0.15
+        outerGlow?.zPosition = -2
+        outerGlow?.blendMode = .add
+        outerGlow?.isAntialiased = true
+        addChild(outerGlow!)
+        
+        // Animations
+        let glowPulse = SKAction.sequence([
+            SKAction.fadeAlpha(to: 0.4, duration: 2.5),
+            SKAction.fadeAlpha(to: 0.25, duration: 2.5)
+        ])
+        innerGlow?.run(SKAction.repeatForever(glowPulse))
+        
+        let outerPulse = SKAction.sequence([
+            SKAction.fadeAlpha(to: 0.2, duration: 3.0),
+            SKAction.fadeAlpha(to: 0.1, duration: 3.0)
+        ])
+        outerGlow?.run(SKAction.repeatForever(outerPulse))
+    }
+    
+    private func addGravitationalLensing(diameter: CGFloat) {
+        let radius = diameter / 2
+        
+        distortionRing = SKShapeNode(circleOfRadius: radius * 1.25)
+        distortionRing?.fillColor = .clear
+        distortionRing?.strokeColor = UIColor.white.withAlphaComponent(0.08)
+        distortionRing?.lineWidth = 3
+        distortionRing?.glowWidth = 20
+        distortionRing?.zPosition = -3
+        distortionRing?.blendMode = .add
+        distortionRing?.isAntialiased = true
+        
+        let wave = SKAction.sequence([
+            SKAction.group([
+                SKAction.fadeAlpha(to: 0.12, duration: 4.0),
+                SKAction.scale(to: 1.05, duration: 4.0)
+            ]),
+            SKAction.group([
+                SKAction.fadeAlpha(to: 0.06, duration: 4.0),
+                SKAction.scale(to: 0.95, duration: 4.0)
+            ])
+        ])
+        distortionRing?.run(SKAction.repeatForever(wave))
+        
+        addChild(distortionRing!)
+    }
+    
     private func setupPhotonRing(diameter: CGFloat) {
         let radius = diameter / 2
         
-        // Thin colored ring right at the event horizon edge
-        photonRing = SKShapeNode(circleOfRadius: radius * 1.01)
+        photonRing = SKShapeNode(circleOfRadius: radius * 1.03)  // 1.03x instead of 1.01x
         photonRing.fillColor = .clear
-        photonRing.strokeColor = targetType.uiColor  // Target color indicator
-        photonRing.lineWidth = 3  // Thin, visible line
-        photonRing.glowWidth = 6  // Soft glow
-        photonRing.zPosition = 1  // Above black hole
+        photonRing.strokeColor = targetType.uiColor
+        photonRing.lineWidth = 4  // Thicker (was 3)
+        photonRing.glowWidth = 12  // Stronger (was 6)
+        photonRing.zPosition = 2
         photonRing.blendMode = .add
         photonRing.isAntialiased = true
         
-        // Add subtle pulse to make it noticeable
+        // Enhanced pulse with scale
         let pulse = SKAction.sequence([
-            SKAction.fadeAlpha(to: 1.0, duration: 0.8),
-            SKAction.fadeAlpha(to: 0.7, duration: 0.8)
+            SKAction.group([
+                SKAction.fadeAlpha(to: 1.0, duration: 0.6),
+                SKAction.scale(to: 1.02, duration: 0.6)
+            ]),
+            SKAction.group([
+                SKAction.fadeAlpha(to: 0.75, duration: 0.6),
+                SKAction.scale(to: 0.98, duration: 0.6)
+            ])
         ])
         photonRing.run(SKAction.repeatForever(pulse))
         
         addChild(photonRing)
-    }
-    
-    private func addGlowEffect() {
-        // Subtle glow around the black hole
-        let glowNode = SKShapeNode(circleOfRadius: currentDiameter / 2)
-        glowNode.fillColor = .black
-        glowNode.strokeColor = .white
-        glowNode.lineWidth = 1  // Thinner line
-        glowNode.alpha = 0.2    // More subtle
-        glowNode.glowWidth = 8  // Slightly less glow
-        glowNode.zPosition = -1
-        glowNode.name = "glow"
-        glowNode.isAntialiased = true  // Smooth edges
-        addChild(glowNode)
     }
     
     @available(*, deprecated, message: "Use growByConsumingStar(_ star:) for relative size-based growth")
@@ -129,40 +213,57 @@ class BlackHole: SKSpriteNode {
         let oldDiameter = currentDiameter
         currentDiameter = newDiameter
         
-        // Scale the sprite itself
         let newSize = CGSize(width: newDiameter, height: newDiameter)
-        let resize = SKAction.resize(toWidth: newSize.width, height: newSize.height, duration: GameConstants.blackHoleSizeAnimationDuration)
+        let resize = SKAction.resize(toWidth: newSize.width, height: newSize.height, 
+                                     duration: GameConstants.blackHoleSizeAnimationDuration)
         resize.timingMode = .easeInEaseOut
         run(resize) { [weak self] in
             self?.updatePhysicsBody()
         }
         
-        // Update glow node size
-        if let glowNode = childNode(withName: "glow") as? SKShapeNode {
-            let newRadius = newDiameter / 2
-            let glowPath = CGPath(
-                ellipseIn: CGRect(
-                    x: -newRadius, y: -newRadius,
-                    width: newRadius * 2, height: newRadius * 2
-                ),
-                transform: nil
-            )
-            glowNode.path = glowPath
+        updateVisualComponents(to: newDiameter)
+    }
+    
+    private func updateVisualComponents(to diameter: CGFloat) {
+        let radius = diameter / 2
+        
+        // Update void core
+        if let void = voidCore {
+            let voidRadius = radius * 0.6
+            void.path = CGPath(ellipseIn: CGRect(x: -voidRadius, y: -voidRadius, 
+                                                  width: voidRadius * 2, height: voidRadius * 2), 
+                              transform: nil)
+        }
+        
+        // Update inner glow
+        if let inner = innerGlow {
+            let innerRadius = radius * 1.05
+            inner.path = CGPath(ellipseIn: CGRect(x: -innerRadius, y: -innerRadius, 
+                                                   width: innerRadius * 2, height: innerRadius * 2), 
+                               transform: nil)
+        }
+        
+        // Update outer glow
+        if let outer = outerGlow {
+            let outerRadius = radius * 1.15
+            outer.path = CGPath(ellipseIn: CGRect(x: -outerRadius, y: -outerRadius, 
+                                                   width: outerRadius * 2, height: outerRadius * 2), 
+                               transform: nil)
         }
         
         // Update photon ring
-        let newRadius = newDiameter / 2 * 1.01
-        let photonPath = CGPath(
-            ellipseIn: CGRect(
-                x: -newRadius, y: -newRadius,
-                width: newRadius * 2, height: newRadius * 2
-            ),
-            transform: nil
-        )
-        photonRing.path = photonPath
+        let photonRadius = radius * 1.03
+        photonRing.path = CGPath(ellipseIn: CGRect(x: -photonRadius, y: -photonRadius, 
+                                                    width: photonRadius * 2, height: photonRadius * 2), 
+                                transform: nil)
         
-        // Update distortion effect (Phase 3)
-        updateDistortionEffect()
+        // Update distortion ring
+        if let distortion = distortionRing {
+            let distortionRadius = radius * 1.25
+            distortion.path = CGPath(ellipseIn: CGRect(x: -distortionRadius, y: -distortionRadius, 
+                                                        width: distortionRadius * 2, height: distortionRadius * 2), 
+                                    transform: nil)
+        }
     }
     
     private func updatePhysicsBody() {
@@ -218,50 +319,6 @@ class BlackHole: SKSpriteNode {
         return currentDiameter <= GameConstants.blackHoleMinDiameter
     }
     
-    // MARK: - Distortion Ring Effect (Phase 3)
-    
-    private func updateDistortionEffect() {
-        if currentDiameter > 150 && distortionRing == nil {
-            // Only create for large black holes (>150pt)
-            let radius = currentDiameter / 2 * 1.2  // Just 20% larger
-            
-            distortionRing = SKShapeNode(circleOfRadius: radius)
-            distortionRing?.fillColor = .clear
-            distortionRing?.strokeColor = UIColor.white.withAlphaComponent(0.1)
-            distortionRing?.lineWidth = 2
-            distortionRing?.glowWidth = 10
-            distortionRing?.zPosition = -1  // Behind black hole
-            distortionRing?.blendMode = .add
-            distortionRing?.isAntialiased = true
-            
-            // Subtle wave effect
-            let wave = SKAction.sequence([
-                SKAction.fadeAlpha(to: 0.15, duration: 2.0),
-                SKAction.fadeAlpha(to: 0.05, duration: 2.0)
-            ])
-            distortionRing?.run(SKAction.repeatForever(wave))
-            
-            addChild(distortionRing!)
-            
-        } else if currentDiameter <= 150 && distortionRing != nil {
-            // Remove if black hole shrinks below threshold
-            distortionRing?.removeFromParent()
-            distortionRing = nil
-            
-        } else if let ring = distortionRing {
-            // Update size for existing ring
-            let newRadius = currentDiameter / 2 * 1.2
-            let newPath = CGPath(
-                ellipseIn: CGRect(
-                    x: -newRadius, y: -newRadius,
-                    width: newRadius * 2, height: newRadius * 2
-                ),
-                transform: nil
-            )
-            ring.path = newPath
-        }
-    }
-    
     // MARK: - Helper Methods
     
     // Helper to create a circle texture
@@ -276,17 +333,17 @@ class BlackHole: SKSpriteNode {
             let center = CGPoint(x: textureSize / 2, y: textureSize / 2)
             let radius = textureSize / 2
             
-            // Draw solid black circle
-            color.setFill()
-            context.cgContext.fillEllipse(in: rect)
-            
-            // Add subtle gradient for depth
+            // Create deep void gradient
             let colorSpace = CGColorSpaceCreateDeviceRGB()
             let colors: [CGColor] = [
-                color.cgColor,
-                color.withAlphaComponent(0.95).cgColor
+                UIColor(red: 0.0, green: 0.0, blue: 0.02, alpha: 1.0).cgColor,  // Dark blue center
+                UIColor(red: 0.0, green: 0.0, blue: 0.0, alpha: 1.0).cgColor,    // Pure black
+                color.withAlphaComponent(0.98).cgColor                            // Slight transparency
             ]
-            let locations: [CGFloat] = [0.0, 1.0]
+            let locations: [CGFloat] = [0.0, 0.5, 1.0]
+            
+            color.setFill()
+            context.cgContext.fillEllipse(in: rect)
             
             if let gradient = CGGradient(colorsSpace: colorSpace, colors: colors as CFArray, locations: locations) {
                 context.cgContext.drawRadialGradient(
