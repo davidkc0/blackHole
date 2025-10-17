@@ -70,6 +70,12 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     private var isGameOver = false
     private var gameOverReason: String?
     
+    // Pause system
+    private var isGamePaused = false
+    private var pauseOverlay: SKSpriteNode?
+    private var fingerLiftTime: TimeInterval = 0
+    private let PAUSE_DELAY: TimeInterval = 0.2  // Delay before pause triggers
+    
     private var mergedStarCount: Int = 0
     private var lastMergeTime: TimeInterval = 0
     
@@ -1346,13 +1352,23 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard let touch = touches.first else { return }
+        let location = touch.location(in: self)
+        
+        // Handle paused state - check if tapped black hole to resume
+        if isGamePaused {
+            let distToBlackHole = distance(from: location, to: blackHole.position)
+            let tapRadius = blackHole.currentDiameter / 2 + 50 // Generous tap area
+            
+            if distToBlackHole <= tapRadius {
+                resumeGame(touch: touch, at: location)
+            }
+            return
+        }
         
         // If already moving black hole with another touch, ignore new touches
         if isBlackHoleBeingMoved && activeTouch != touch {
             return
         }
-        
-        let location = touch.location(in: self)
         
         if isGameOver {
             // Tap anywhere to restart when game is over
@@ -1369,6 +1385,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard !isGameOver else { return }
+        guard !isGamePaused else { return }  // Don't move when paused
         guard let touch = touches.first else { return }
         
         // Only respond to the active touch
@@ -1385,6 +1402,19 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         if touch == activeTouch {
             isBlackHoleBeingMoved = false
             activeTouch = nil
+            
+            // PAUSE GAME when finger lifts (if not already game over/paused)
+            if !isGameOver && !isGamePaused {
+                fingerLiftTime = CACurrentMediaTime()
+                // Trigger pause after delay to prevent accidental pauses
+                DispatchQueue.main.asyncAfter(deadline: .now() + PAUSE_DELAY) { [weak self] in
+                    guard let self = self else { return }
+                    // Only pause if finger is still lifted and game hasn't resumed
+                    if !self.isBlackHoleBeingMoved && !self.isGamePaused && !self.isGameOver {
+                        self.pauseGame()
+                    }
+                }
+            }
         }
     }
     
@@ -1395,6 +1425,17 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         if touch == activeTouch {
             isBlackHoleBeingMoved = false
             activeTouch = nil
+            
+            // PAUSE GAME when touch cancelled (same as finger lift)
+            if !isGameOver && !isGamePaused {
+                fingerLiftTime = CACurrentMediaTime()
+                DispatchQueue.main.asyncAfter(deadline: .now() + PAUSE_DELAY) { [weak self] in
+                    guard let self = self else { return }
+                    if !self.isBlackHoleBeingMoved && !self.isGamePaused && !self.isGameOver {
+                        self.pauseGame()
+                    }
+                }
+            }
         }
     }
     
@@ -1402,6 +1443,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     
     override func update(_ currentTime: TimeInterval) {
         guard !isGameOver else { return }
+        guard !isGamePaused else { return }  // Don't update when paused
         
         // Track frame rate for performance monitoring
         trackFrameRate(currentTime)
@@ -1718,6 +1760,120 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         let fadeOut = SKAction.fadeAlpha(to: 0.3, duration: 0.8)
         let fadeIn = SKAction.fadeAlpha(to: 1.0, duration: 0.8)
         restartLabel!.run(SKAction.repeatForever(SKAction.sequence([fadeOut, fadeIn])))
+    }
+    
+    // MARK: - Pause System
+    
+    private func pauseGame() {
+        isGamePaused = true
+        
+        // Freeze physics
+        physicsWorld.speed = 0
+        
+        // Pause timers
+        starSpawnTimer?.invalidate()
+        colorChangeTimer?.invalidate()
+        
+        // Show pause UI
+        showPauseOverlay()
+        showBlackHoleResumeIndicator()
+        
+        print("⏸️ Game paused - tap black hole to resume")
+    }
+    
+    private func resumeGame(touch: UITouch, at location: CGPoint) {
+        isGamePaused = false
+        
+        // Resume physics
+        physicsWorld.speed = 1.0
+        
+        // Resume timers
+        scheduleNextStarSpawn()
+        scheduleNextColorChange()
+        
+        // Remove pause UI
+        removePauseOverlay()
+        blackHole.childNode(withName: "resumeIndicator")?.removeFromParent()
+        
+        // Move black hole to touch location and track it
+        blackHole.position = location
+        isBlackHoleBeingMoved = true
+        activeTouch = touch
+        
+        print("▶️ Game resumed")
+    }
+    
+    private func showPauseOverlay() {
+        // Semi-transparent dark overlay
+        pauseOverlay = SKSpriteNode(color: .black, size: CGSize(width: 5000, height: 5000))
+        pauseOverlay!.alpha = 0
+        pauseOverlay!.position = CGPoint.zero
+        pauseOverlay!.zPosition = 150
+        cameraNode.addChild(pauseOverlay!)
+        
+        pauseOverlay!.run(SKAction.fadeAlpha(to: 0.6, duration: 0.2))
+        
+        // "PAUSED" title
+        let pauseTitle = SKLabelNode(fontNamed: "AvenirNext-Bold")
+        pauseTitle.text = "PAUSED"
+        pauseTitle.fontSize = 48
+        pauseTitle.fontColor = .white
+        pauseTitle.position = CGPoint(x: 0, y: 150)
+        pauseTitle.zPosition = 151
+        pauseTitle.name = "pauseTitle"
+        pauseTitle.alpha = 0
+        pauseOverlay!.addChild(pauseTitle)
+        
+        // "Tap Black Hole to Resume" instruction
+        let resumeLabel = SKLabelNode(fontNamed: "AvenirNext-Bold")
+        resumeLabel.text = "Tap Black Hole to Resume"
+        resumeLabel.fontSize = 24
+        resumeLabel.fontColor = .lightGray
+        resumeLabel.position = CGPoint(x: 0, y: 100)
+        resumeLabel.zPosition = 151
+        resumeLabel.name = "resumeLabel"
+        resumeLabel.alpha = 0
+        pauseOverlay!.addChild(resumeLabel)
+        
+        // Fade in text
+        pauseTitle.run(SKAction.fadeIn(withDuration: 0.3))
+        resumeLabel.run(SKAction.fadeIn(withDuration: 0.3))
+        
+        // Blink animation for resume instruction
+        let blink = SKAction.sequence([
+            SKAction.fadeAlpha(to: 0.4, duration: 0.8),
+            SKAction.fadeAlpha(to: 1.0, duration: 0.8)
+        ])
+        resumeLabel.run(SKAction.repeatForever(blink))
+    }
+    
+    private func showBlackHoleResumeIndicator() {
+        // Add pulsing ring around black hole to indicate where to tap
+        let ring = SKShapeNode(circleOfRadius: blackHole.currentDiameter / 2 + 30)
+        ring.strokeColor = .cyan
+        ring.lineWidth = 3
+        ring.glowWidth = 8
+        ring.fillColor = .clear
+        ring.name = "resumeIndicator"
+        ring.zPosition = 200
+        
+        // Pulsing animation
+        let scaleUp = SKAction.scale(to: 1.2, duration: 1.0)
+        let scaleDown = SKAction.scale(to: 1.0, duration: 1.0)
+        let pulse = SKAction.sequence([scaleUp, scaleDown])
+        ring.run(SKAction.repeatForever(pulse))
+        
+        let fadeOut = SKAction.fadeAlpha(to: 0.3, duration: 1.0)
+        let fadeIn = SKAction.fadeAlpha(to: 0.8, duration: 1.0)
+        let fade = SKAction.sequence([fadeOut, fadeIn])
+        ring.run(SKAction.repeatForever(fade))
+        
+        blackHole.addChild(ring)
+    }
+    
+    private func removePauseOverlay() {
+        pauseOverlay?.removeFromParent()
+        pauseOverlay = nil
     }
     
     private func restartGame() {
