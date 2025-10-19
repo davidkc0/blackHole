@@ -13,7 +13,7 @@ enum GameConstants {
     static let blackHoleInitialDiameter: CGFloat = 40
     static let blackHoleMinDiameter: CGFloat = 30
     static let blackHoleMaxDiameter: CGFloat = 10000  // Effectively unlimited
-    static let blackHoleShrinkMultiplier: CGFloat = 0.8
+    static let blackHoleShrinkMultiplier: CGFloat = 0.80  // Moderate penalty: lose 20% of size
     static let blackHoleSizeAnimationDuration: TimeInterval = 0.2
     static let blackHoleScreenPadding: CGFloat = 30
     
@@ -27,7 +27,7 @@ enum GameConstants {
     static let blackHoleGrowthMultiplier: CGFloat = 1.15  // Deprecated
     
     // Camera Zoom
-    static let cameraZoomTargetPercentage: CGFloat = 0.28  // Black hole takes 28% of screen
+    static let cameraZoomTargetPercentage: CGFloat = 0.20  // Black hole takes 20% of screen
     static let cameraMinZoom: CGFloat = 0.5                // Maximum zoom in
     static let cameraMaxZoom: CGFloat = 4.0                // Maximum zoom out
     static let cameraZoomLerpFactor: CGFloat = 0.15        // Smooth zoom speed
@@ -46,7 +46,7 @@ enum GameConstants {
     static let spawnAccelerationThreshold: CGFloat = 200       // When acceleration begins
     static let spawnAccelerationFactor: CGFloat = 400          // Rate of acceleration
     static let starSpawnInterval: TimeInterval = 0.6           // Legacy constant (kept for compatibility)
-    static let starMaxCount: Int = 40
+    static let starMaxCount: Int = 60
     static let starMinSpawnDistance: CGFloat = 100
     static let starSpawnAnimationDuration: TimeInterval = 0.2
     static let starFadeOutDuration: TimeInterval = 0.1
@@ -89,11 +89,20 @@ enum GameConstants {
     static let mergedStarPointsMultiplier: Double = 1.5
     static let enableStarMerging: Bool = true
     
-    // UI
-    static let scoreLabelTopMargin: CGFloat = 20
+    // UI (adjusted for Dynamic Island clearance)
+    static let scoreLabelTopMargin: CGFloat = 70
     static let scoreLabelLeftMargin: CGFloat = 20
     static let scoreFontSize: CGFloat = 24
     static let scoreStrokeWidth: CGFloat = -3
+    
+    // Passive Shrink System
+    static let passiveShrinkRate: CGFloat = 0.1        
+    static let passiveShrinkScaling: CGFloat = 0.0     // No scaling with size (constant rate)
+    
+    // Shrink Indicator UI (circular gauge in top-right, accounting for Dynamic Island)
+    static let shrinkIndicatorRadius: CGFloat = 20
+    static let shrinkIndicatorRightMargin: CGFloat = 20
+    static let shrinkIndicatorTopMargin: CGFloat = 70
     
     // Game Over
     static let gameOverFontSize: CGFloat = 48

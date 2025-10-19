@@ -12,6 +12,7 @@ class Star: SKSpriteNode {
     private var warningGlow: SKShapeNode?
     var hasBeenMerged: Bool = false
     var isMergedStar: Bool = false
+    var hasBeenProcessed: Bool = false  // Prevent multiple collision processing
     var basePoints: Int
     
     private var innerGlow: SKSpriteNode?

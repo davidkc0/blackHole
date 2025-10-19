@@ -76,6 +76,12 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     private var fingerLiftTime: TimeInterval = 0
     private let PAUSE_DELAY: TimeInterval = 0.2  // Delay before pause triggers
     
+    // Passive shrink system
+    private var lastShrinkTime: TimeInterval = 0
+    private var shrinkIndicatorContainer: SKShapeNode?
+    private var shrinkIndicatorFill: SKShapeNode?
+    private var peakBlackHoleSize: CGFloat = 40.0  // Track the highest size achieved
+    
     private var mergedStarCount: Int = 0
     private var lastMergeTime: TimeInterval = 0
     
@@ -105,6 +111,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         setupPowerUpSystem()
         setupUI()
         setupPowerUpUI()
+        setupShrinkIndicator()
         startGameTimers()
         
         // Initialize background star positions relative to camera
@@ -223,7 +230,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     private func createStarLayer(count: Int, sizeRange: ClosedRange<CGFloat>,
                                 alphaRange: ClosedRange<CGFloat>, useColorVariety: Bool,
                                 zPosition: CGFloat, layerIndex: Int) {
-        let spread: CGFloat = 1500  // Tighter spread for denser starfield
+        let spread: CGFloat = 600  // Stars spawn within wrap zone for stable field
         
         // Realistic star color palette (mostly white, some tinted)
         let starColors: [(UIColor, CGFloat)] = [
@@ -283,7 +290,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         )
         
         let parallaxFactors: [CGFloat] = [0.3, 0.6, 1.0]  // How much each layer moves with camera
-        let wrapDistance: CGFloat = 1500  // When to wrap stars
+        let wrapDistance: CGFloat = 700  // When to wrap stars (reduced for denser starfield)
         
         for (layerIndex, layer) in backgroundLayers.enumerated() {
             let parallaxFactor = parallaxFactors[layerIndex]
@@ -316,7 +323,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
                     let angle = atan2(star.position.y - cameraNode.position.y,
                                      star.position.x - cameraNode.position.x)
                     let oppositeAngle = angle + .pi
-                    let wrapRadius: CGFloat = 1000
+                    let wrapRadius: CGFloat = 500  // Less than wrapDistance to prevent re-wrapping
                     
                     // Calculate new base position (reverse the parallax math)
                     newBaseX = cameraNode.position.x + cos(oppositeAngle) * wrapRadius + offsetX
@@ -375,12 +382,12 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     }
     
     private func setupPowerUpUI() {
-        // Container for power-up indicator (top-right)
+        // Container for power-up indicator (top-left, below score, accounting for Dynamic Island)
         let container = SKNode()
         // Position relative to camera view using screen bounds (not world size)
         let screenSize = UIScreen.main.bounds.size
-        let xOffset = screenSize.width / 2 - 70
-        let yOffset = screenSize.height / 2 - 50
+        let xOffset = -screenSize.width / 2 + 70  // Left side, with padding
+        let yOffset = screenSize.height / 2 - 140  // Below score (70pt margin + 24pt font + 46pt spacing)
         container.position = CGPoint(x: xOffset, y: yOffset)
         container.name = "powerUpContainer"
         hudNode.addChild(container)
@@ -403,6 +410,29 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         
         activePowerUp.indicatorNode = container
         container.isHidden = true
+    }
+    
+    private func setupShrinkIndicator() {
+        let screenSize = UIScreen.main.bounds.size
+        let xPos = screenSize.width / 2 - GameConstants.shrinkIndicatorRightMargin - GameConstants.shrinkIndicatorRadius
+        let yPos = screenSize.height / 2 - GameConstants.shrinkIndicatorTopMargin - GameConstants.shrinkIndicatorRadius
+        
+        // Outer container ring (static) - always visible
+        shrinkIndicatorContainer = SKShapeNode(circleOfRadius: GameConstants.shrinkIndicatorRadius)
+        shrinkIndicatorContainer!.fillColor = .clear
+        shrinkIndicatorContainer!.strokeColor = UIColor.white.withAlphaComponent(0.9)
+        shrinkIndicatorContainer!.lineWidth = 2
+        shrinkIndicatorContainer!.position = CGPoint(x: xPos, y: yPos)
+        shrinkIndicatorContainer!.zPosition = 100
+        hudNode.addChild(shrinkIndicatorContainer!)
+        
+        // Inner fill circle (shrinks with black hole size) - SAME SIZE as outline when full
+        shrinkIndicatorFill = SKShapeNode(circleOfRadius: GameConstants.shrinkIndicatorRadius)
+        shrinkIndicatorFill!.fillColor = UIColor(red: 0.2, green: 0.8, blue: 1.0, alpha: 0.8)  // Cyan
+        shrinkIndicatorFill!.strokeColor = .clear
+        shrinkIndicatorFill!.position = CGPoint(x: xPos, y: yPos)
+        shrinkIndicatorFill!.zPosition = 101
+        hudNode.addChild(shrinkIndicatorFill!)
     }
     
     private func startGameTimers() {
@@ -549,7 +579,13 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             multiplier = 6.0      // Giant stars: 6x distance
         }
         
-        return max(GameConstants.starMinSpawnDistance, starSize * multiplier)
+        let calculatedDistance = starSize * multiplier
+        
+        // Cap max distance at 800pt so Red Supergiants can actually spawn
+        // (spawn system places stars ~526pt from black hole)
+        let maxAllowedDistance: CGFloat = 800
+        
+        return max(GameConstants.starMinSpawnDistance, min(calculatedDistance, maxAllowedDistance))
     }
     
     private func isValidSpawnPosition(_ position: CGPoint, forStarSize size: CGFloat) -> Bool {
@@ -573,45 +609,48 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         let size = blackHole.currentDiameter
         let random = CGFloat.random(in: 0...1)
         
-        if size < 50 {
-            // Phase 1: Safe learning (30-50pt) - Only tiny stars
-            return .whiteDwarf  // 100% (18-28pt - always safe)
+        // SPAWN THRESHOLDS: Stars appear one phase ahead of when you can eat them
+        // This creates visual variety and goals to work toward
+        
+        if size < 35 {
+            // Phase 1: Only whites (30-35pt)
+            return .whiteDwarf  // 100% (16-24pt)
             
-        } else if size < 70 {
-            // Phase 2: Introduce yellow (50-70pt) - All edible
-            if random < 0.70 { return .whiteDwarf }      // 70% (18-28pt)
-            else { return .yellowDwarf }                  // 30% (32-42pt)
+        } else if size < 55 {
+            // Phase 2: Introduce yellows (35-55pt) - yellows spawn but may not be eatable yet
+            if random < 0.70 { return .whiteDwarf }      // 70% (16-24pt)
+            else { return .yellowDwarf }                  // 30% (28-38pt)
             
-        } else if size < 100 {
-            // Phase 3: Introduce blue (70-100pt) - Blues now safe at 70+
-            if random < 0.40 { return .whiteDwarf }      // 40% (18-28pt)
-            else if random < 0.70 { return .yellowDwarf } // 30% (32-42pt)
-            else { return .blueGiant }                    // 30% (45-58pt)
+        } else if size < 85 {
+            // Phase 3: Introduce blues (55-85pt) - blues spawn but may not be eatable yet
+            if random < 0.40 { return .whiteDwarf }      // 40% (16-24pt)
+            else if random < 0.70 { return .yellowDwarf } // 30% (28-38pt)
+            else { return .blueGiant }                    // 30% (55-75pt)
             
         } else if size < 130 {
-            // Phase 4: Introduce orange (100-130pt) - Some oranges edible, rare red giants
-            if random < 0.2375 { return .whiteDwarf }      // 23.75% (18-28pt)
-            else if random < 0.4275 { return .yellowDwarf } // 19% (32-42pt)
-            else if random < 0.7125 { return .blueGiant }   // 28.5% (45-58pt)
-            else if random < 0.95 { return .orangeGiant }   // 23.75% (90-140pt - risky!)
-            else { return .redSupergiant }                  // 5% (280-600pt - VERY DANGEROUS!)
+            // Phase 4: Introduce oranges (85-130pt) - oranges spawn but may not be eatable yet
+            if random < 0.2375 { return .whiteDwarf }      // 23.75% (16-24pt)
+            else if random < 0.4275 { return .yellowDwarf } // 19% (28-38pt)
+            else if random < 0.7125 { return .blueGiant }   // 28.5% (55-75pt)
+            else if random < 0.95 { return .orangeGiant }   // 23.75% (120-300pt)
+            else { return .redSupergiant }                  // 5% (280-900pt - VERY DANGEROUS!)
             
         } else if size < 600 {
-            // Phase 5: All types (130-600pt) - Full game unlocked
+            // Phase 5: All types (130-600pt)
             if random < 0.20 { return .whiteDwarf }      // 20% (16-24pt)
             else if random < 0.35 { return .yellowDwarf } // 15% (28-38pt)
             else if random < 0.60 { return .blueGiant }   // 25% (55-75pt)
-            else if random < 0.85 { return .orangeGiant } // 25% (120-200pt)
-            else { return .redSupergiant }                // 15% (280-600pt - highest reward!)
+            else if random < 0.85 { return .orangeGiant } // 25% (120-300pt)
+            else { return .redSupergiant }                // 15% (280-900pt)
             
         } else {
             // Phase 6: Supermassive mode (600pt+)
             // Favor larger, more valuable stars
-            if random < 0.10 { return .whiteDwarf }      // 10% (less tedious small stars)
+            if random < 0.10 { return .whiteDwarf }      // 10%
             else if random < 0.15 { return .yellowDwarf } // 5%
             else if random < 0.30 { return .blueGiant }   // 15%
-            else if random < 0.60 { return .orangeGiant } // 30% (common)
-            else { return .redSupergiant }                // 40% (very common!)
+            else if random < 0.60 { return .orangeGiant } // 30%
+            else { return .redSupergiant }                // 40%
         }
     }
     
@@ -663,22 +702,29 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     private func getAvailableStarTypes() -> [StarType] {
         let size = blackHole.currentDiameter
         
-        // Determine base types for current phase
+        // TARGET AVAILABILITY THRESHOLDS: Higher than spawn thresholds
+        // These control which colors appear in the color indicator
+        // Stars spawn BEFORE they're eatable, creating "goal" stars
+        
         let phaseTypes: [StarType]
-        if size < 50 {
-            // Phase 1: White only
+        if size < 48 {
+            // Phase 1: Only whites can be targets (30-48pt)
+            // Yellows may spawn at 35pt but can't be eaten yet
             phaseTypes = [.whiteDwarf]
-        } else if size < 70 {
-            // Phase 2: White + Yellow
+        } else if size < 80 {
+            // Phase 2: Whites + Yellows can be targets (48-80pt)
+            // Blues may spawn at 55pt but can't be eaten yet
             phaseTypes = [.whiteDwarf, .yellowDwarf]
-        } else if size < 100 {
-            // Phase 3: White + Yellow + Blue
+        } else if size < 140 {
+            // Phase 3: Whites + Yellows + Blues can be targets (80-140pt)
+            // Oranges may spawn at 85pt but can't be eaten yet
             phaseTypes = [.whiteDwarf, .yellowDwarf, .blueGiant]
-        } else if size < 130 {
-            // Phase 4: Add Orange (Red spawns at 5% but usually uneatable)
+        } else if size < 320 {
+            // Phase 4: Add Oranges as targets (140-320pt)
+            // Reds may spawn at 130pt but can't be eaten yet
             phaseTypes = [.whiteDwarf, .yellowDwarf, .blueGiant, .orangeGiant]
         } else {
-            // Phase 5+: All colors available
+            // Phase 5: All colors available as targets (320pt+)
             phaseTypes = Array(StarType.allCases)
         }
         
@@ -779,6 +825,12 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     }
     
     private func handleStarCollision(star: Star) {
+        // PREVENT MULTIPLE PROCESSING: Check if star has already been processed
+        if star.hasBeenProcessed {
+            return
+        }
+        star.hasBeenProcessed = true  // Mark as processed immediately
+        
         // FIRST CHECK: Is star too large?
         if !blackHole.canConsume(star) {
             let rainbowActive = activePowerUp.activeType == .rainbow
@@ -1468,6 +1520,10 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         // Update power-up UI
         updatePowerUpUI(currentTime: currentTime)
         
+        // Apply passive shrink and update indicator
+        applyPassiveShrink(currentTime: currentTime)
+        updateShrinkIndicator()
+        
         applyGravity()
         applyStarToStarGravity()
         removeDistantStars()
@@ -1874,6 +1930,72 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     private func removePauseOverlay() {
         pauseOverlay?.removeFromParent()
         pauseOverlay = nil
+    }
+    
+    // MARK: - Passive Shrink System
+    
+    private func applyPassiveShrink(currentTime: TimeInterval) {
+        // Don't shrink while paused
+        guard !isGamePaused else { return }
+        
+        // Initialize timing
+        if lastShrinkTime == 0 {
+            lastShrinkTime = currentTime
+            return
+        }
+        
+        let deltaTime = currentTime - lastShrinkTime
+        lastShrinkTime = currentTime
+        
+        // Skip large time gaps (backgrounding)
+        guard deltaTime < 1.0 else { return }
+        
+        // Apply constant shrink
+        let shrinkAmount = GameConstants.passiveShrinkRate * CGFloat(deltaTime)
+        let newSize = max(GameConstants.blackHoleMinDiameter, blackHole.currentDiameter - shrinkAmount)
+        blackHole.updateSize(to: newSize)
+        
+        // Check for collapse
+        if blackHole.isAtMinimumSize() {
+            gameOverReason = "Black hole collapsed"
+            triggerGameOver()
+        }
+    }
+    
+    private func updateShrinkIndicator() {
+        guard let fill = shrinkIndicatorFill else { return }
+        
+        // Update peak size if black hole has grown beyond current peak
+        if blackHole.currentDiameter > peakBlackHoleSize {
+            peakBlackHoleSize = blackHole.currentDiameter
+        }
+        
+        // Simple approach: gauge directly mirrors black hole size relative to its current peak
+        // When at peak: gauge is full (no gap with outline)
+        // When shrinking from peak: gauge shrinks proportionally
+        // Account for minimum size so collapse (30pt) shows as almost empty
+        let minSize = GameConstants.blackHoleMinDiameter
+        let effectiveCurrentSize = max(minSize, blackHole.currentDiameter)
+        let effectivePeakSize = max(minSize, peakBlackHoleSize)
+        let sizeRatio = max(0.0, min(1.0, (effectiveCurrentSize - minSize) / (effectivePeakSize - minSize)))
+        let fillRadius = max(3, GameConstants.shrinkIndicatorRadius * sizeRatio)
+        
+        // Recreate fill circle
+        fill.removeFromParent()
+        
+        let screenSize = UIScreen.main.bounds.size
+        let xPos = screenSize.width / 2 - GameConstants.shrinkIndicatorRightMargin - GameConstants.shrinkIndicatorRadius
+        let yPos = screenSize.height / 2 - GameConstants.shrinkIndicatorTopMargin - GameConstants.shrinkIndicatorRadius
+        
+        shrinkIndicatorFill = SKShapeNode(circleOfRadius: fillRadius)
+        shrinkIndicatorFill!.strokeColor = .clear
+        shrinkIndicatorFill!.position = CGPoint(x: xPos, y: yPos)
+        shrinkIndicatorFill!.zPosition = 101
+        
+        // Always cyan color
+        shrinkIndicatorFill!.fillColor = UIColor(red: 0.2, green: 0.8, blue: 1.0, alpha: 0.8)
+        
+        hudNode.addChild(shrinkIndicatorFill!)
     }
     
     private func restartGame() {

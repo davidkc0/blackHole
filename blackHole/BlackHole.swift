@@ -179,14 +179,14 @@ class BlackHole: SKSpriteNode {
         // Calculate relative size (0.0 to 1.0, where 1.0 = star is same size as black hole)
         let relativeSize = starSize / currentDiameter
         
-        // Base growth: 3% to 20% based on relative size (cozy pacing)
-        // Small stars (25% of black hole size) = 7.25% growth
-        // Medium stars (50% of black hole size) = 11.5% growth
-        // Large stars (75% of black hole size) = 15.75% growth
-        let baseGrowth = 0.03 + (relativeSize * 0.17)
+        // NERFED growth: 1.47% to 6.6% based on relative size (increased by 5% again)
+        // Small stars (25% of black hole size) = 2.8% growth
+        // Medium stars (50% of black hole size) = 4.0% growth
+        // Large stars (75% of black hole size) = 5.3% growth
+        let baseGrowth = 0.01467428 + (relativeSize * 0.05135996)
         
         // Diminishing returns for very large black holes
-       let sizePenalty = 1.0 / (1.0 + (currentDiameter / 600.0))
+        let sizePenalty = 1.0 / (1.0 + (currentDiameter / 600.0))
         
         // Combine base growth with size penalty
         let adjustedGrowth = baseGrowth * sizePenalty
@@ -206,7 +206,7 @@ class BlackHole: SKSpriteNode {
         updateSize(to: newDiameter)
     }
     
-    private func updateSize(to newDiameter: CGFloat) {
+    func updateSize(to newDiameter: CGFloat) {
         let oldDiameter = currentDiameter
         currentDiameter = newDiameter
         
