@@ -47,7 +47,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     // MARK: - Properties
     
     var blackHole: BlackHole!
-    private var stars: [Star] = []
+    var stars: [Star] = []  // Internal access for StarFieldManager
     private var cameraNode: SKCameraNode!
     private var hudNode: SKNode!
     private var backgroundLayers: [[SKSpriteNode]] = [[], [], []]  // Far, mid, near layers
@@ -55,6 +55,11 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     
     var powerUpManager: PowerUpManager!
     var activePowerUp = ActivePowerUpState()
+    
+    private let movementTracker = MovementTracker(historySize: GameConstants.movementHistorySize, 
+                                                   speedThreshold: GameConstants.movementSpeedThreshold)
+    private var starFieldManager: StarFieldManager!
+    private var lastStarFieldSpawn: TimeInterval = 0
     
     private var starSpawnTimer: Timer?
     private var colorChangeTimer: Timer?
@@ -122,6 +127,10 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         let currentTime = CACurrentMediaTime()
         powerUpManager = PowerUpManager(gameStartTime: currentTime)
         powerUpManager.scene = self
+        
+        // Initialize star field manager
+        starFieldManager = StarFieldManager()
+        starFieldManager.scene = self
     }
     
     private func setupScene() {
@@ -533,7 +542,8 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         var attempts = 0
         
         while validPosition == nil && attempts < 10 {
-            let spawnPosition = randomEdgePosition()
+            // Use predictive positioning for intelligent spawning
+            let spawnPosition = predictiveEdgePosition()
             
             // Check 1: Distance from black hole
             let minDistanceFromBlackHole = calculateMinSpawnDistance(for: star)
@@ -609,48 +619,43 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         let size = blackHole.currentDiameter
         let random = CGFloat.random(in: 0...1)
         
-        // SPAWN THRESHOLDS: Stars appear one phase ahead of when you can eat them
-        // This creates visual variety and goals to work toward
+        // TEASE/PREVIEW SYSTEM: Spawn stars one phase ahead as challenges
+        // Larger "preview" stars spawn at normal size to tease next level
+        // Color indicator only shows stars you can actually eat
         
-        if size < 35 {
-            // Phase 1: Only whites (30-35pt)
-            return .whiteDwarf  // 100% (16-24pt)
+        if size < 48 {
+            // Phase 1: Whites only + 7% yellow previews (large!)
+            if random < 0.93 { return .whiteDwarf }      // 93% (16-24pt - edible)
+            else { return .yellowDwarf }                  // 7% (28-38pt - TOO BIG, preview)
             
-        } else if size < 55 {
-            // Phase 2: Introduce yellows (35-55pt) - yellows spawn but may not be eatable yet
-            if random < 0.70 { return .whiteDwarf }      // 70% (16-24pt)
-            else { return .yellowDwarf }                  // 30% (28-38pt)
+        } else if size < 80 {
+            // Phase 2: Whites + Yellows + 7% blue previews (large!)
+            if random < 0.65 { return .whiteDwarf }      // 65% (16-24pt)
+            else if random < 0.93 { return .yellowDwarf } // 28% (28-38pt)
+            else { return .blueGiant }                    // 7% (55-75pt - TOO BIG, preview)
             
-        } else if size < 85 {
-            // Phase 3: Introduce blues (55-85pt) - blues spawn but may not be eatable yet
-            if random < 0.40 { return .whiteDwarf }      // 40% (16-24pt)
-            else if random < 0.70 { return .yellowDwarf } // 30% (28-38pt)
-            else { return .blueGiant }                    // 30% (55-75pt)
+        } else if size < 140 {
+            // Phase 3: Whites + Yellows + Blues + 7% orange previews (huge!)
+            if random < 0.35 { return .whiteDwarf }      // 35% (16-24pt)
+            else if random < 0.65 { return .yellowDwarf } // 30% (28-38pt)
+            else if random < 0.93 { return .blueGiant }   // 28% (55-75pt)
+            else { return .orangeGiant }                  // 7% (120-300pt - TOO BIG, preview)
             
-        } else if size < 130 {
-            // Phase 4: Introduce oranges (85-130pt) - oranges spawn but may not be eatable yet
-            if random < 0.2375 { return .whiteDwarf }      // 23.75% (16-24pt)
-            else if random < 0.4275 { return .yellowDwarf } // 19% (28-38pt)
-            else if random < 0.7125 { return .blueGiant }   // 28.5% (55-75pt)
-            else if random < 0.95 { return .orangeGiant }   // 23.75% (120-300pt)
-            else { return .redSupergiant }                  // 5% (280-900pt - VERY DANGEROUS!)
-            
-        } else if size < 600 {
-            // Phase 5: All types (130-600pt)
-            if random < 0.20 { return .whiteDwarf }      // 20% (16-24pt)
-            else if random < 0.35 { return .yellowDwarf } // 15% (28-38pt)
-            else if random < 0.60 { return .blueGiant }   // 25% (55-75pt)
-            else if random < 0.85 { return .orangeGiant } // 25% (120-300pt)
-            else { return .redSupergiant }                // 15% (280-900pt)
+        } else if size < 320 {
+            // Phase 4: Whites + Yellows + Blues + Oranges + 5% red previews (massive!)
+            if random < 0.25 { return .whiteDwarf }      // 25% (16-24pt)
+            else if random < 0.45 { return .yellowDwarf } // 20% (28-38pt)
+            else if random < 0.70 { return .blueGiant }   // 25% (55-75pt)
+            else if random < 0.95 { return .orangeGiant } // 25% (120-300pt)
+            else { return .redSupergiant }                // 5% (280-900pt - MASSIVE, preview)
             
         } else {
-            // Phase 6: Supermassive mode (600pt+)
-            // Favor larger, more valuable stars
-            if random < 0.10 { return .whiteDwarf }      // 10%
-            else if random < 0.15 { return .yellowDwarf } // 5%
-            else if random < 0.30 { return .blueGiant }   // 15%
-            else if random < 0.60 { return .orangeGiant } // 30%
-            else { return .redSupergiant }                // 40%
+            // Phase 5: All types available (320pt+)
+            if random < 0.20 { return .whiteDwarf }      // 20% (16-24pt)
+            else if random < 0.35 { return .yellowDwarf } // 15% (28-38pt)
+            else if random < 0.55 { return .blueGiant }   // 20% (55-75pt)
+            else if random < 0.80 { return .orangeGiant } // 25% (120-300pt)
+            else { return .redSupergiant }                // 20% (280-900pt)
         }
     }
     
@@ -680,6 +685,66 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             return CGPoint(x: x, y: y)
         default:
             return CGPoint(x: blackHole.position.x, y: blackHole.position.y + spawnDistance)
+        }
+    }
+    
+    private func predictiveEdgePosition() -> CGPoint {
+        // Get movement direction and spawn weights
+        let direction = movementTracker.getMovementDirection()
+        let weights = direction.getSpawnWeights()
+        
+        // Select weighted edge based on movement direction
+        let selectedEdge = selectWeightedEdge(from: weights)
+        
+        // Spawn relative to CURRENT position, but favor edges in direction of travel
+        // This ensures validation passes while still being intelligent about placement
+        return calculateEdgePosition(edge: selectedEdge, relativeTo: blackHole.position)
+    }
+    
+    private func selectWeightedEdge(from weights: [EdgeWeight]) -> SpawnEdge {
+        let random = CGFloat.random(in: 0...1)
+        var cumulative: CGFloat = 0
+        
+        for weight in weights {
+            cumulative += weight.weight
+            if random <= cumulative {
+                return weight.edge
+            }
+        }
+        
+        // Fallback to first edge
+        return weights[0].edge
+    }
+    
+    private func calculateEdgePosition(edge: SpawnEdge, relativeTo center: CGPoint) -> CGPoint {
+        let spawnDistance: CGFloat = max(size.width, size.height) / 2 + 100
+        let randomOffset = CGFloat.random(in: -200...200)
+        
+        switch edge {
+        case .top:
+            return CGPoint(x: center.x + randomOffset, y: center.y + spawnDistance)
+        case .topRight:
+            let offset = spawnDistance * 0.707 // cos(45°) = sin(45°)
+            return CGPoint(x: center.x + offset + randomOffset * 0.5, 
+                          y: center.y + offset + randomOffset * 0.5)
+        case .right:
+            return CGPoint(x: center.x + spawnDistance, y: center.y + randomOffset)
+        case .bottomRight:
+            let offset = spawnDistance * 0.707
+            return CGPoint(x: center.x + offset + randomOffset * 0.5, 
+                          y: center.y - offset - randomOffset * 0.5)
+        case .bottom:
+            return CGPoint(x: center.x + randomOffset, y: center.y - spawnDistance)
+        case .bottomLeft:
+            let offset = spawnDistance * 0.707
+            return CGPoint(x: center.x - offset - randomOffset * 0.5, 
+                          y: center.y - offset - randomOffset * 0.5)
+        case .left:
+            return CGPoint(x: center.x - spawnDistance, y: center.y + randomOffset)
+        case .topLeft:
+            let offset = spawnDistance * 0.707
+            return CGPoint(x: center.x - offset - randomOffset * 0.5, 
+                          y: center.y + offset + randomOffset * 0.5)
         }
     }
     
@@ -1502,6 +1567,14 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         
         // Update camera to follow black hole smoothly
         updateCamera()
+        
+        // Track black hole movement for predictive spawning
+        movementTracker.recordPosition(blackHole.position, at: currentTime)
+        
+        // Check for star field spawning
+        starFieldManager.checkAndSpawnStarField(currentTime: currentTime, 
+                                                blackHolePosition: blackHole.position, 
+                                                scene: self)
         
         // Update background parallax
         updateBackgroundStars()

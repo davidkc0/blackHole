@@ -46,7 +46,7 @@ enum GameConstants {
     static let spawnAccelerationThreshold: CGFloat = 200       // When acceleration begins
     static let spawnAccelerationFactor: CGFloat = 400          // Rate of acceleration
     static let starSpawnInterval: TimeInterval = 0.6           // Legacy constant (kept for compatibility)
-    static let starMaxCount: Int = 60
+    static let starMaxCount: Int = 72
     static let starMinSpawnDistance: CGFloat = 100
     static let starSpawnAnimationDuration: TimeInterval = 0.2
     static let starFadeOutDuration: TimeInterval = 0.1
@@ -98,6 +98,18 @@ enum GameConstants {
     // Passive Shrink System
     static let passiveShrinkRate: CGFloat = 0.1        
     static let passiveShrinkScaling: CGFloat = 0.0     // No scaling with size (constant rate)
+    
+    // Predictive Spawning
+    static let movementHistorySize: Int = 5
+    static let predictionTimeAhead: TimeInterval = 1.5
+    static let movementSpeedThreshold: CGFloat = 50.0 // Below this = stationary
+    
+    // Star Field System
+    static let starFieldMinInterval: TimeInterval = 45.0
+    static let starFieldMaxInterval: TimeInterval = 60.0
+    static let starFieldDensityMultiplier: CGFloat = 2.5 // 2.5x normal density
+    static let starFieldRadius: CGFloat = 400.0
+    static let starFieldChallengePct: CGFloat = 0.30 // 30% larger stars
     
     // Shrink Indicator UI (circular gauge in top-right, accounting for Dynamic Island)
     static let shrinkIndicatorRadius: CGFloat = 20
