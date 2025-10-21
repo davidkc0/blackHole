@@ -103,6 +103,11 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         case high, medium, low
     }
     
+    // Retro Aesthetic System
+    private var retroManager = RetroAestheticManager.shared
+    private var currentColorProfile = GameConstants.RetroAestheticSettings.defaultColorProfile
+    private var colorGradingNode: SKEffectNode?
+    
     // MARK: - Scene Lifecycle
     
     override func didMove(to view: SKView) {
@@ -117,6 +122,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         setupUI()
         setupPowerUpUI()
         setupShrinkIndicator()
+        setupRetroAesthetics()
         startGameTimers()
         
         // Initialize background star positions relative to camera
@@ -442,6 +448,82 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         shrinkIndicatorFill!.position = CGPoint(x: xPos, y: yPos)
         shrinkIndicatorFill!.zPosition = 101
         hudNode.addChild(shrinkIndicatorFill!)
+    }
+    
+    // MARK: - Retro Aesthetic Setup
+    
+    private func setupRetroAesthetics() {
+        // Check master toggle first
+        guard GameConstants.RetroAestheticSettings.enableRetroAesthetics else {
+            print("🎨 Retro aesthetics DISABLED via master toggle")
+            return
+        }
+        
+        // Only setup if at least one effect is enabled
+        guard GameConstants.RetroAestheticSettings.enableFilmGrain ||
+              GameConstants.RetroAestheticSettings.enableVignette ||
+              GameConstants.RetroAestheticSettings.enableRimLighting else {
+            print("🎨 All retro effects disabled in constants")
+            return
+        }
+        
+        print("🎨 Setting up retro aesthetics...")
+        
+        // Setup film grain and vignette
+        retroManager.setupRetroEffects(in: self)
+        
+        // Setup color grading (if enabled)
+        if GameConstants.RetroAestheticSettings.enableColorGrading {
+            setupColorGrading()
+        }
+        
+        // Adjust existing elements (keep very subtle)
+        applyRetroStyling()
+        
+        print("🎨 Retro aesthetics setup complete")
+    }
+    
+    private func setupColorGrading() {
+        // Create effect node for color grading
+        colorGradingNode = SKEffectNode()
+        colorGradingNode?.shouldEnableEffects = true
+        
+        // Apply color grading filter
+        let colorFilter = CIFilter(name: "CIColorControls")
+        let profile = currentColorProfile.adjustments
+        colorFilter?.setValue(profile.saturation, forKey: kCIInputSaturationKey)
+        colorFilter?.setValue(profile.contrast, forKey: kCIInputContrastKey)
+        
+        colorGradingNode?.filter = colorFilter
+        
+        // Note: For full color grading, would need to reparent scene content under this node
+        // For now, we're applying the effect through the existing visual enhancements
+    }
+    
+    private func applyRetroStyling() {
+        // Keep the original pure black background - don't darken it
+        // backgroundColor stays as UIColor.spaceBackground (pure black)
+        
+        // DON'T reduce background star brightness - they need to stay visible
+        // The grain and vignette will provide the atmosphere
+        
+        // Enhance nebula contrast slightly
+        nebulaNode?.alpha = 0.4
+        nebulaNode?.colorBlendFactor = 0.2
+        nebulaNode?.color = currentColorProfile.adjustments.shadows
+    }
+    
+    private func updateRetroEffects(_ currentTime: TimeInterval) {
+        // Dynamic rim light based on black hole size
+        let sizeFactor = blackHole.currentDiameter / 300.0
+        blackHole.retroRimLight?.alpha = RetroAestheticManager.Config.rimLightIntensity * min(sizeFactor, 1.5)
+        
+        // Adjust grain intensity based on action
+        if stars.count > 15 {
+            retroManager.grainOverlay?.alpha = RetroAestheticManager.Config.grainIntensity * 1.2
+        } else {
+            retroManager.grainOverlay?.alpha = RetroAestheticManager.Config.grainIntensity
+        }
     }
     
     private func startGameTimers() {
@@ -1579,6 +1661,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         // Update background parallax
         updateBackgroundStars()
         
+        // Update retro effects
+        updateRetroEffects(currentTime)
+        
         // Check star proximity for warnings
         checkStarProximity()
         
@@ -1619,6 +1704,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
                 let averageFrameTime = recentFrameTimes.reduce(0, +) / Double(recentFrameTimes.count)
                 let averageFPS = 1.0 / averageFrameTime
                 
+                // Log FPS for debugging
+                print("📊 FPS: \(String(format: "%.1f", averageFPS)) | Stars: \(stars.count) | Mode: \(performanceMode)")
+                
                 // Adjust quality based on performance
                 if averageFPS < 55 && performanceMode != .low {
                     reduceParticleQuality()
@@ -1638,11 +1726,13 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             performanceMode = .medium
             // Reduce birth rates by 40%
             adjustStarParticleQuality(multiplier: 0.6)
+            retroManager.setQuality(.medium)
         case .medium:
             performanceMode = .low
             // Further reduce and disable distant particles
             adjustStarParticleQuality(multiplier: 0.3)
             disableDistantStarParticles()
+            retroManager.setQuality(.low)
         case .low:
             break
         }
@@ -1655,9 +1745,11 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         case .low:
             performanceMode = .medium
             adjustStarParticleQuality(multiplier: 0.6)
+            retroManager.setQuality(.medium)
         case .medium:
             performanceMode = .high
             adjustStarParticleQuality(multiplier: 1.0)
+            retroManager.setQuality(.high)
         case .high:
             break
         }
@@ -1744,6 +1836,14 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             // If star is too large and getting close, show warning
             if !blackHole.canConsume(star) && dist < GameConstants.starWarningDistance {
                 star.showWarningGlow()
+                
+                // Add dramatic rim light flash on black hole when very close
+                if dist < 80 {
+                    blackHole.retroRimLight?.run(SKAction.sequence([
+                        SKAction.fadeAlpha(to: 1.0, duration: 0.1),
+                        SKAction.fadeAlpha(to: RetroAestheticManager.Config.rimLightIntensity, duration: 0.1)
+                    ]))
+                }
                 
                 // Haptic warning for dangerous star
                 if let starName = star.name {

@@ -19,6 +19,8 @@ class Star: SKSpriteNode {
     private var outerCorona: SKSpriteNode?
     private var coronaParticles: SKEmitterNode?
     private var visualProfile: VisualEffectProfile!
+    private var retroBloom: SKEffectNode?
+    private var retroRimLight: SKShapeNode?
     
     init(type: StarType) {
         self.starType = type
@@ -38,6 +40,8 @@ class Star: SKSpriteNode {
         
         setupPhysics(diameter: diameter)
         setupMultiLayerVisuals()
+        // addRetroBloom()  // DISABLED - causes FPS drop
+        addRetroRimLight()
         addInitialDrift()
         startAnimations()
     }
@@ -143,6 +147,95 @@ class Star: SKSpriteNode {
         coronaParticles!.name = "coronaParticles"
         
         addChild(coronaParticles!)
+    }
+    
+    private func addRetroBloom() {
+        // Only add bloom to large, bright stars
+        guard size.width > 80 else { return }
+        
+        retroBloom = SKEffectNode()
+        retroBloom?.shouldEnableEffects = true
+        
+        // Create bloom glow
+        let bloomGlow = SKShapeNode(circleOfRadius: size.width / 2)
+        bloomGlow.fillColor = starType.uiColor
+        bloomGlow.strokeColor = .clear
+        bloomGlow.alpha = 0.6
+        bloomGlow.blendMode = .add
+        
+        // Apply gaussian blur for bloom
+        let bloomFilter = CIFilter(name: "CIGaussianBlur")
+        bloomFilter?.setValue(10.0, forKey: kCIInputRadiusKey)
+        retroBloom?.filter = bloomFilter
+        
+        retroBloom?.addChild(bloomGlow)
+        retroBloom?.zPosition = -4
+        addChild(retroBloom!)
+    }
+    
+    private func addRetroRimLight() {
+        // Only add if retro aesthetics are enabled
+        guard GameConstants.RetroAestheticSettings.enableRetroAesthetics &&
+              GameConstants.RetroAestheticSettings.enableRimLighting else {
+            return
+        }
+        
+        // PERFORMANCE: Only add rim light to medium/large stars (> 35pt)
+        guard size.width > 35 else { return }
+        
+        let radius = size.width / 2
+        
+        // Create FULL CIRCLE rim light (not an arc)
+        retroRimLight = SKShapeNode(circleOfRadius: radius * 1.08)
+        retroRimLight?.fillColor = .clear
+        
+        // Use star's color for rim light with warm tint
+        let starColor = starType.uiColor
+        
+        // Add warmth by mixing with orange
+        let warmOrange = UIColor(red: 1.0, green: 0.6, blue: 0.3, alpha: 1.0)
+        retroRimLight?.strokeColor = blendColors(starColor, warmOrange, ratio: 0.3)
+        
+        // Scale line width and glow with star size
+        let baseLineWidth: CGFloat = size.width > 80 ? 2.5 : 1.5
+        let baseGlowWidth: CGFloat = size.width > 80 ? 15 : 10
+        
+        retroRimLight?.lineWidth = baseLineWidth
+        retroRimLight?.glowWidth = baseGlowWidth
+        retroRimLight?.alpha = 0.5  // More subtle than black hole
+        retroRimLight?.blendMode = .add
+        retroRimLight?.zPosition = 3
+        
+        addChild(retroRimLight!)
+        
+        // Subtle pulse animation (slower than black hole)
+        let rimLightPulse = SKAction.sequence([
+            SKAction.group([
+                SKAction.fadeAlpha(to: 0.3, duration: 2.5),
+                SKAction.scale(to: 1.01, duration: 2.5)
+            ]),
+            SKAction.group([
+                SKAction.fadeAlpha(to: 0.5, duration: 2.5),
+                SKAction.scale(to: 1.0, duration: 2.5)
+            ])
+        ])
+        rimLightPulse.timingMode = .easeInEaseOut
+        retroRimLight?.run(SKAction.repeatForever(rimLightPulse))
+    }
+    
+    private func blendColors(_ color1: UIColor, _ color2: UIColor, ratio: CGFloat) -> UIColor {
+        var r1: CGFloat = 0, g1: CGFloat = 0, b1: CGFloat = 0, a1: CGFloat = 0
+        var r2: CGFloat = 0, g2: CGFloat = 0, b2: CGFloat = 0, a2: CGFloat = 0
+        
+        color1.getRed(&r1, green: &g1, blue: &b1, alpha: &a1)
+        color2.getRed(&r2, green: &g2, blue: &b2, alpha: &a2)
+        
+        return UIColor(
+            red: r1 * (1 - ratio) + r2 * ratio,
+            green: g1 * (1 - ratio) + g2 * ratio,
+            blue: b1 * (1 - ratio) + b2 * ratio,
+            alpha: 1.0
+        )
     }
     
     private func startAnimations() {

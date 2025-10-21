@@ -15,6 +15,7 @@ class BlackHole: SKSpriteNode {
     private var innerGlow: SKShapeNode?
     private var outerGlow: SKShapeNode?
     private var voidCore: SKShapeNode?
+    var retroRimLight: SKShapeNode?  // Retro aesthetic rim lighting
     
     init(diameter: CGFloat = GameConstants.blackHoleInitialDiameter) {
         self.currentDiameter = diameter
@@ -28,6 +29,7 @@ class BlackHole: SKSpriteNode {
         setupVoidCore(diameter: diameter)
         setupMultiLayerGlow(diameter: diameter)
         setupPhotonRing(diameter: diameter)
+        setupRetroRimLight(diameter: diameter)
         addGravitationalLensing(diameter: diameter)
     }
     
@@ -162,6 +164,64 @@ class BlackHole: SKSpriteNode {
         addChild(photonRing)
     }
     
+    private func setupRetroRimLight(diameter: CGFloat) {
+        // Only add if retro aesthetics are enabled
+        guard GameConstants.RetroAestheticSettings.enableRetroAesthetics &&
+              GameConstants.RetroAestheticSettings.enableRimLighting else {
+            return
+        }
+        
+        let radius = diameter / 2
+        
+        // Create FULL CIRCLE rim light (not an arc)
+        retroRimLight = SKShapeNode(circleOfRadius: radius * 1.05)
+        retroRimLight?.fillColor = .clear
+        // Use the target type color with warm tint (matches photon ring)
+        retroRimLight?.strokeColor = blendColorWithWarmth(targetType.uiColor)
+        retroRimLight?.lineWidth = 3
+        retroRimLight?.glowWidth = 20
+        retroRimLight?.alpha = RetroAestheticManager.Config.rimLightIntensity
+        retroRimLight?.blendMode = .add
+        retroRimLight?.zPosition = 3
+        
+        addChild(retroRimLight!)
+        
+        print("🌟 Black hole rim light added (full circle, color: \(targetType.displayName))")
+        
+        // Dramatic pulse animation
+        let rimLightPulse = SKAction.sequence([
+            SKAction.group([
+                SKAction.fadeAlpha(to: 0.4, duration: 2.0),
+                SKAction.scale(to: 1.02, duration: 2.0)
+            ]),
+            SKAction.group([
+                SKAction.fadeAlpha(to: RetroAestheticManager.Config.rimLightIntensity, duration: 2.0),
+                SKAction.scale(to: 1.0, duration: 2.0)
+            ])
+        ])
+        rimLightPulse.timingMode = .easeInEaseOut
+        retroRimLight?.run(SKAction.repeatForever(rimLightPulse))
+    }
+    
+    private func blendColorWithWarmth(_ color: UIColor) -> UIColor {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        color.getRed(&r, green: &g, blue: &b, alpha: &a)
+        
+        // Add subtle warmth by boosting red/yellow slightly
+        let warmOrange = UIColor(red: 1.0, green: 0.6, blue: 0.3, alpha: 1.0)
+        var rWarm: CGFloat = 0, gWarm: CGFloat = 0, bWarm: CGFloat = 0, aWarm: CGFloat = 0
+        warmOrange.getRed(&rWarm, green: &gWarm, blue: &bWarm, alpha: &aWarm)
+        
+        // Blend 20% warm orange into the color (less than stars for subtlety)
+        let ratio: CGFloat = 0.2
+        return UIColor(
+            red: r * (1 - ratio) + rWarm * ratio,
+            green: g * (1 - ratio) + gWarm * ratio,
+            blue: b * (1 - ratio) + bWarm * ratio,
+            alpha: 1.0
+        )
+    }
+    
     @available(*, deprecated, message: "Use growByConsumingStar(_ star:) for relative size-based growth")
     func grow() {
         // Fallback to fixed multiplier if needed
@@ -261,6 +321,14 @@ class BlackHole: SKSpriteNode {
                                                         width: distortionRadius * 2, height: distortionRadius * 2), 
                                     transform: nil)
         }
+        
+        // Update retro rim light
+        if let rim = retroRimLight {
+            let rimRadius = radius * 1.05
+            rim.path = CGPath(ellipseIn: CGRect(x: -rimRadius, y: -rimRadius,
+                                                 width: rimRadius * 2, height: rimRadius * 2),
+                             transform: nil)
+        }
     }
     
     private func updatePhysicsBody() {
@@ -286,6 +354,17 @@ class BlackHole: SKSpriteNode {
                 to: newType.uiColor,
                 progress: progress
             )
+            
+            // Also update rim light color to match
+            if let rimLight = self.retroRimLight {
+                let fromColor = rimLight.strokeColor ?? self.blendColorWithWarmth(newType.uiColor)
+                let toColor = self.blendColorWithWarmth(newType.uiColor)
+                rimLight.strokeColor = self.interpolateColor(
+                    from: fromColor,
+                    to: toColor,
+                    progress: progress
+                )
+            }
         }
         run(colorAction)
     }

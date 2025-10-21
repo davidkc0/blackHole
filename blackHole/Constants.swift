@@ -120,6 +120,22 @@ enum GameConstants {
     static let gameOverFontSize: CGFloat = 48
     static let finalScoreFontSize: CGFloat = 32
     static let restartFontSize: CGFloat = 24
+    
+    // Retro Aesthetic Settings
+    enum RetroAestheticSettings {
+        // MASTER TOGGLE - Set to false to disable ALL retro effects
+        static let enableRetroAesthetics: Bool = true  // ✅ ENABLED
+        
+        // Individual effect toggles (only apply if master toggle is true)
+        static let enableFilmGrain: Bool = true        // ✅ WORKING - subtle white noise
+        static let enableVignette: Bool = true         // ✅ WORKING - edge darkening
+        static let enableRimLighting: Bool = true      // ✅ WORKING - color-matched circles
+        static let enableColorGrading: Bool = false    // ❌ OFF
+        static let defaultColorProfile: ColorGradingProfile = .bladeRunner
+        static let enableScanlines: Bool = false
+        static let grainIntensity: CGFloat = 0.03      // Reduced - more subtle
+        static let vignetteIntensity: CGFloat = 0.30   // Edge darkening
+    }
 }
 
 enum StarType: CaseIterable {
