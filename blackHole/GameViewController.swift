@@ -18,8 +18,8 @@ class GameViewController: UIViewController {
         _ = HapticManager.shared
         
         if let view = self.view as! SKView? {
-            // Create the scene programmatically
-            let scene = GameScene(size: view.bounds.size)
+            // Create MENU scene instead of game scene
+            let scene = MenuScene(size: view.bounds.size)
             scene.scaleMode = .aspectFill
             
             // Present the scene
@@ -27,9 +27,15 @@ class GameViewController: UIViewController {
             
             view.ignoresSiblingOrder = true
             
-            view.showsFPS = true
-            view.showsNodeCount = true
+            // Disable FPS/node count for menu (cleaner look)
+            view.showsFPS = false
+            view.showsNodeCount = false
         }
+
+        // for family in UIFont.familyNames.sorted() {
+        //     let names = UIFont.fontNames(forFamilyName: family)
+        //     print("Family: \(family) Font names: \(names)")
+        // }
     }
 
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask {

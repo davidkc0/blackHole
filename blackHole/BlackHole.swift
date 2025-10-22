@@ -54,11 +54,11 @@ class BlackHole: SKSpriteNode {
         let radius = diameter / 2
         
         voidCore = SKShapeNode(circleOfRadius: radius * 0.6)
-        voidCore?.fillColor = UIColor(red: 0.0, green: 0.0, blue: 0.05, alpha: 1.0)
+        voidCore?.fillColor = .black  // Pure black instead of dark blue
         voidCore?.strokeColor = .clear
         voidCore?.zPosition = -2
-        voidCore?.blendMode = .multiply
-        voidCore?.alpha = 0.8
+        voidCore?.blendMode = .alpha  // Alpha blend instead of multiply
+        voidCore?.alpha = 1.0  // Full opacity
         addChild(voidCore!)
         
         let voidPulse = SKAction.sequence([
@@ -409,16 +409,16 @@ class BlackHole: SKSpriteNode {
             let center = CGPoint(x: textureSize / 2, y: textureSize / 2)
             let radius = textureSize / 2
             
-            // Create deep void gradient
+            // Create pure black gradient (no blue tint)
             let colorSpace = CGColorSpaceCreateDeviceRGB()
             let colors: [CGColor] = [
-                UIColor(red: 0.0, green: 0.0, blue: 0.02, alpha: 1.0).cgColor,  // Dark blue center
-                UIColor(red: 0.0, green: 0.0, blue: 0.0, alpha: 1.0).cgColor,    // Pure black
-                color.withAlphaComponent(0.98).cgColor                            // Slight transparency
+                UIColor.black.cgColor,  // Pure black center
+                UIColor.black.cgColor,   // Pure black throughout
+                UIColor.black.cgColor    // Pure black edge
             ]
             let locations: [CGFloat] = [0.0, 0.5, 1.0]
             
-            color.setFill()
+            UIColor.black.setFill()  // Pure black fill
             context.cgContext.fillEllipse(in: rect)
             
             if let gradient = CGGradient(colorsSpace: colorSpace, colors: colors as CFArray, locations: locations) {

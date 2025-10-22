@@ -360,23 +360,75 @@ class Star: SKSpriteNode {
         warningGlow = nil
     }
     
-    func addMergedStarIndicator() {
-        // Add pulsing yellow ring to show this is a merged star
-        let ring = SKShapeNode(circleOfRadius: size.width / 2 + 8)
-        ring.strokeColor = .yellow
-        ring.fillColor = .clear
-        ring.lineWidth = 3
-        ring.alpha = 0.6
-        ring.zPosition = 2
-        ring.name = "mergedIndicator"
-        addChild(ring)
+    func addMergedStarEnhancement() {
+        guard let innerGlow = innerGlow, let outerCorona = outerCorona else { return }
         
-        // Pulse animation
-        let pulse = SKAction.sequence([
-            SKAction.fadeAlpha(to: 0.3, duration: 0.8),
-            SKAction.fadeAlpha(to: 0.6, duration: 0.8)
-        ])
-        ring.run(SKAction.repeatForever(pulse))
+        // Store original properties for restoration
+        let originalInnerAlpha = innerGlow.alpha
+        let originalCoronaAlpha = outerCorona.alpha
+        
+        // Boost glow intensity
+        let boostedInnerAlpha = min(originalInnerAlpha + 0.4, 1.0)
+        let boostedCoronaAlpha = min(originalCoronaAlpha + 0.3, 1.0)
+        
+        // Immediately apply boosted alpha
+        innerGlow.alpha = boostedInnerAlpha
+        outerCorona.alpha = boostedCoronaAlpha
+        
+        // Create intense pulsing animation (faster and more dramatic than normal)
+        let scaleUp = SKAction.scale(to: 1.15, duration: 0.25)
+        let scaleDown = SKAction.scale(to: 1.0, duration: 0.25)
+        scaleUp.timingMode = .easeInEaseOut
+        scaleDown.timingMode = .easeInEaseOut
+        
+        let alphaUp = SKAction.fadeAlpha(to: min(boostedInnerAlpha + 0.15, 1.0), duration: 0.25)
+        let alphaDown = SKAction.fadeAlpha(to: boostedInnerAlpha, duration: 0.25)
+        alphaUp.timingMode = .easeInEaseOut
+        alphaDown.timingMode = .easeInEaseOut
+        
+        // Combined scale and alpha pulse
+        let scalePulse = SKAction.sequence([scaleUp, scaleDown])
+        let alphaPulse = SKAction.sequence([alphaUp, alphaDown])
+        
+        // Remove any existing normal pulse animations
+        innerGlow.removeAction(forKey: "glowPulse")
+        outerCorona.removeAction(forKey: "glowPulse")
+        
+        // Apply enhanced pulse to both layers
+        innerGlow.run(SKAction.repeatForever(scalePulse), withKey: "mergedScalePulse")
+        innerGlow.run(SKAction.repeatForever(alphaPulse), withKey: "mergedAlphaPulse")
+        outerCorona.run(SKAction.repeatForever(scalePulse), withKey: "mergedScalePulse")
+        
+        // After 8 seconds, restore to normal state
+        let wait = SKAction.wait(forDuration: 8.0)
+        let restore = SKAction.run { [weak self, weak innerGlow, weak outerCorona] in
+            guard let self = self, let innerGlow = innerGlow, let outerCorona = outerCorona else { return }
+            
+            // Remove enhanced pulse animations
+            innerGlow.removeAction(forKey: "mergedScalePulse")
+            innerGlow.removeAction(forKey: "mergedAlphaPulse")
+            outerCorona.removeAction(forKey: "mergedScalePulse")
+            
+            // Smoothly fade back to original alpha values
+            let fadeInner = SKAction.fadeAlpha(to: originalInnerAlpha, duration: 1.0)
+            let fadeCorona = SKAction.fadeAlpha(to: originalCoronaAlpha, duration: 1.0)
+            fadeInner.timingMode = .easeInEaseOut
+            fadeCorona.timingMode = .easeInEaseOut
+            
+            // Smoothly scale back to normal
+            let scaleBack = SKAction.scale(to: 1.0, duration: 1.0)
+            scaleBack.timingMode = .easeInEaseOut
+            
+            innerGlow.run(fadeInner)
+            innerGlow.run(scaleBack)
+            outerCorona.run(fadeCorona)
+            outerCorona.run(scaleBack)
+            
+            // Restore original pulse animation if it existed
+            self.applyPulseAnimation()
+        }
+        
+        run(SKAction.sequence([wait, restore]))
     }
     
     // Helper to create a circle texture

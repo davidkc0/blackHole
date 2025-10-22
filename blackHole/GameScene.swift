@@ -368,10 +368,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     
     private func setupUI() {
         // Score label - attached to HUD (camera)
-        scoreLabel = SKLabelNode(fontNamed: "SFProRounded-Bold")
-        if scoreLabel.fontName == nil {
-            scoreLabel = SKLabelNode(fontNamed: "AvenirNext-Bold")
-        }
+        scoreLabel = SKLabelNode(fontNamed: "Exo2-Bold")
         scoreLabel.fontSize = GameConstants.scoreFontSize
         scoreLabel.fontColor = .white
         
@@ -416,7 +413,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         container.addChild(iconBg)
         
         // Timer label
-        let timerLabel = SKLabelNode(fontNamed: "AvenirNext-Bold")
+        let timerLabel = SKLabelNode(fontNamed: "Exo2-Medium")
         timerLabel.fontSize = 16
         timerLabel.fontColor = .white
         timerLabel.position = CGPoint(x: 0, y: -40)
@@ -1177,8 +1174,8 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             mergedStar.physicsBody?.velocity = CGVector(dx: avgVelX, dy: avgVelY)
         }
         
-        // Add visual indicator
-        mergedStar.addMergedStarIndicator()
+        // Add enhanced glow effect
+        mergedStar.addMergedStarEnhancement()
         
         return mergedStar
     }
@@ -1932,7 +1929,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     
     private func showGameOverUI() {
         // Game Over label - attached to HUD
-        gameOverLabel = SKLabelNode(fontNamed: "AvenirNext-Bold")
+        gameOverLabel = SKLabelNode(fontNamed: "Exo2-Bold")
         gameOverLabel!.text = "Game Over"
         gameOverLabel!.fontSize = GameConstants.gameOverFontSize
         gameOverLabel!.fontColor = .white
@@ -1942,7 +1939,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         
         // Game over reason label (if applicable)
         if let reason = gameOverReason {
-            let reasonLabel = SKLabelNode(fontNamed: "AvenirNext-Bold")
+            let reasonLabel = SKLabelNode(fontNamed: "Exo2-Medium")
             reasonLabel.text = reason
             reasonLabel.fontSize = 20
             reasonLabel.fontColor = .red
@@ -1952,7 +1949,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         }
         
         // Final score label
-        finalScoreLabel = SKLabelNode(fontNamed: "AvenirNext-Bold")
+        finalScoreLabel = SKLabelNode(fontNamed: "Exo2-Bold")
         finalScoreLabel!.text = "Final Score: \(formatScore(GameManager.shared.currentScore))"
         finalScoreLabel!.fontSize = GameConstants.finalScoreFontSize
         finalScoreLabel!.fontColor = .white
@@ -1962,7 +1959,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         
         // High score label (if applicable)
         if GameManager.shared.currentScore == GameManager.shared.highScore && GameManager.shared.highScore > 0 {
-            let highScoreLabel = SKLabelNode(fontNamed: "AvenirNext-Bold")
+            let highScoreLabel = SKLabelNode(fontNamed: "Exo2-Medium")
             highScoreLabel.text = "New High Score!"
             highScoreLabel.fontSize = 28
             highScoreLabel.fontColor = .yellow
@@ -1977,7 +1974,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         }
         
         // Restart label
-        restartLabel = SKLabelNode(fontNamed: "AvenirNext-Bold")
+        restartLabel = SKLabelNode(fontNamed: "Exo2-Bold")
         restartLabel!.text = "Tap to Restart"
         restartLabel!.fontSize = GameConstants.restartFontSize
         restartLabel!.fontColor = .lightGray
@@ -2043,7 +2040,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         pauseOverlay!.run(SKAction.fadeAlpha(to: 0.6, duration: 0.2))
         
         // "PAUSED" title
-        let pauseTitle = SKLabelNode(fontNamed: "AvenirNext-Bold")
+        let pauseTitle = SKLabelNode(fontNamed: "Exo2-Bold")
         pauseTitle.text = "PAUSED"
         pauseTitle.fontSize = 48
         pauseTitle.fontColor = .white
@@ -2054,7 +2051,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         pauseOverlay!.addChild(pauseTitle)
         
         // "Tap Black Hole to Resume" instruction
-        let resumeLabel = SKLabelNode(fontNamed: "AvenirNext-Bold")
+        let resumeLabel = SKLabelNode(fontNamed: "Exo2-Bold")
         resumeLabel.text = "Tap Black Hole to Resume"
         resumeLabel.fontSize = 24
         resumeLabel.fontColor = .lightGray

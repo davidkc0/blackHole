@@ -75,7 +75,7 @@ class RetroAestheticManager {
     
     // MARK: - Vignette Generation
     
-    private func generateVignetteTexture() -> SKTexture {
+    func generateVignetteTexture() -> SKTexture {
         let size = CGSize(width: 512, height: 512)
         let renderer = UIGraphicsImageRenderer(size: size)
         
