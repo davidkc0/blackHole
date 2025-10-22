@@ -489,7 +489,7 @@ class MenuScene: SKScene {
         AudioManager.shared.playPowerUpSound()
         
         // Show temporary message
-        let message = SKLabelNode(fontNamed: "Exo2-Bold")
+        let message = SKLabelNode(fontNamed: "NDAstroneer-Bold")
         message.text = "COMING SOON"
         message.fontSize = 24
         message.fontColor = UIColor(red: 1.0, green: 0.8, blue: 0.2, alpha: 1.0)

@@ -50,7 +50,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     var stars: [Star] = []  // Internal access for StarFieldManager
     private var cameraNode: SKCameraNode!
     private var hudNode: SKNode!
-    private var backgroundLayers: [[SKSpriteNode]] = [[], [], []]  // Far, mid, near layers
+    private var backgroundLayers: [[SKNode]] = [[], [], []]  // Far, mid, near layers
     private var nebulaNode: SKSpriteNode?  // Distant nebula gradient for atmosphere
     
     var powerUpManager: PowerUpManager!
@@ -214,7 +214,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         // Layer 0: Distant stars (darkest, slowest parallax)
         createStarLayer(
             count: 400,  // DOUBLED for much richer starfield
-            sizeRange: 0.8...1.5,  // Keep size same
+            sizeRange: 0.5...1.0,  // Smaller for point-light appearance
             alphaRange: 0.3...0.5,  // Brighter for visibility
             useColorVariety: true,
             zPosition: -30,
@@ -224,7 +224,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         // Layer 1: Mid-distance stars (moderate brightness and parallax)
         createStarLayer(
             count: 250,  // More than doubled for density
-            sizeRange: 1.5...2.5,  // Keep size same
+            sizeRange: 1.0...1.5,  // Smaller for point-light appearance
             alphaRange: 0.5...0.7,  // Brighter
             useColorVariety: true,
             zPosition: -20,
@@ -234,7 +234,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         // Layer 2: Near stars (brightest, fastest parallax)
         createStarLayer(
             count: 150,  // Nearly doubled for better foreground
-            sizeRange: 2.5...3.0,  // Keep size same
+            sizeRange: 1.5...2.0,  // Smaller for point-light appearance
             alphaRange: 0.7...0.9,  // Much brighter for visibility
             useColorVariety: false,  // Near stars stay white for clarity
             zPosition: -10,
@@ -259,7 +259,13 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         for _ in 0..<count {
             let starSize = CGFloat.random(in: sizeRange)
             let color = useColorVariety ? selectWeightedStarColor(colors: starColors) : .white
-            let star = SKSpriteNode(color: color, size: CGSize(width: starSize, height: starSize))
+            
+            // Create circular star with soft glow for point-light appearance
+            let star = SKShapeNode(circleOfRadius: starSize / 2)
+            star.fillColor = color
+            star.strokeColor = .clear
+            star.glowWidth = starSize * 0.3  // Soft glow effect
+            star.blendMode = .add  // Additive blending for light effect
             
             // Store base position in userData for parallax calculation
             let baseX = CGFloat.random(in: -spread...spread)
@@ -368,7 +374,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     
     private func setupUI() {
         // Score label - attached to HUD (camera)
-        scoreLabel = SKLabelNode(fontNamed: "Exo2-Bold")
+        scoreLabel = SKLabelNode(fontNamed: "NDAstroneer-Bold")
         scoreLabel.fontSize = GameConstants.scoreFontSize
         scoreLabel.fontColor = .white
         
@@ -413,7 +419,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         container.addChild(iconBg)
         
         // Timer label
-        let timerLabel = SKLabelNode(fontNamed: "Exo2-Medium")
+        let timerLabel = SKLabelNode(fontNamed: "NDAstroneer-Regular")
         timerLabel.fontSize = 16
         timerLabel.fontColor = .white
         timerLabel.position = CGPoint(x: 0, y: -40)
@@ -1891,7 +1897,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     
     private func updateScoreLabel() {
         let score = GameManager.shared.currentScore
-        scoreLabel.text = "Score: \(formatScore(score))"
+        scoreLabel.text = "\(formatScore(score))"
         
         // Update stroke label
         if let strokeLabel = scoreLabel.children.first as? SKLabelNode {
@@ -1929,8 +1935,8 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     
     private func showGameOverUI() {
         // Game Over label - attached to HUD
-        gameOverLabel = SKLabelNode(fontNamed: "Exo2-Bold")
-        gameOverLabel!.text = "Game Over"
+        gameOverLabel = SKLabelNode(fontNamed: "NDAstroneer-Bold")
+        gameOverLabel!.text = "GAME OVER"
         gameOverLabel!.fontSize = GameConstants.gameOverFontSize
         gameOverLabel!.fontColor = .white
         gameOverLabel!.position = CGPoint(x: 0, y: 120)
@@ -1939,7 +1945,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         
         // Game over reason label (if applicable)
         if let reason = gameOverReason {
-            let reasonLabel = SKLabelNode(fontNamed: "Exo2-Medium")
+            let reasonLabel = SKLabelNode(fontNamed: "NDAstroneer-Regular")
             reasonLabel.text = reason
             reasonLabel.fontSize = 20
             reasonLabel.fontColor = .red
@@ -1949,7 +1955,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         }
         
         // Final score label
-        finalScoreLabel = SKLabelNode(fontNamed: "Exo2-Bold")
+        finalScoreLabel = SKLabelNode(fontNamed: "NDAstroneer-Bold")
         finalScoreLabel!.text = "Final Score: \(formatScore(GameManager.shared.currentScore))"
         finalScoreLabel!.fontSize = GameConstants.finalScoreFontSize
         finalScoreLabel!.fontColor = .white
@@ -1959,7 +1965,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         
         // High score label (if applicable)
         if GameManager.shared.currentScore == GameManager.shared.highScore && GameManager.shared.highScore > 0 {
-            let highScoreLabel = SKLabelNode(fontNamed: "Exo2-Medium")
+            let highScoreLabel = SKLabelNode(fontNamed: "NDAstroneer-Regular")
             highScoreLabel.text = "New High Score!"
             highScoreLabel.fontSize = 28
             highScoreLabel.fontColor = .yellow
@@ -1974,8 +1980,8 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         }
         
         // Restart label
-        restartLabel = SKLabelNode(fontNamed: "Exo2-Bold")
-        restartLabel!.text = "Tap to Restart"
+        restartLabel = SKLabelNode(fontNamed: "NDAstroneer-Bold")
+        restartLabel!.text = "TAP TO RESTART"
         restartLabel!.fontSize = GameConstants.restartFontSize
         restartLabel!.fontColor = .lightGray
         restartLabel!.position = CGPoint(x: 0, y: -80)
@@ -2040,7 +2046,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         pauseOverlay!.run(SKAction.fadeAlpha(to: 0.6, duration: 0.2))
         
         // "PAUSED" title
-        let pauseTitle = SKLabelNode(fontNamed: "Exo2-Bold")
+        let pauseTitle = SKLabelNode(fontNamed: "NDAstroneer-Bold")
         pauseTitle.text = "PAUSED"
         pauseTitle.fontSize = 48
         pauseTitle.fontColor = .white
@@ -2051,7 +2057,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         pauseOverlay!.addChild(pauseTitle)
         
         // "Tap Black Hole to Resume" instruction
-        let resumeLabel = SKLabelNode(fontNamed: "Exo2-Bold")
+        let resumeLabel = SKLabelNode(fontNamed: "NDAstroneer-Bold")
         resumeLabel.text = "Tap Black Hole to Resume"
         resumeLabel.fontSize = 24
         resumeLabel.fontColor = .lightGray

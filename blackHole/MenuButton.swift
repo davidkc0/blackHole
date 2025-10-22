@@ -45,7 +45,7 @@ class MenuButton: SKNode {
         self.size = size
         
         // Create label
-        self.label = SKLabelNode(fontNamed: "Exo2-Bold")
+        self.label = SKLabelNode(fontNamed: "NDAstroneer-Bold")
         label.text = text
         label.fontSize = size.fontSize
         label.fontColor = .white
