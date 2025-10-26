@@ -8,8 +8,8 @@
 import SpriteKit
 
 class BlackHole: SKSpriteNode {
-    private(set) var currentDiameter: CGFloat
-    private(set) var targetType: StarType
+    var currentDiameter: CGFloat
+    var targetType: StarType
     var photonRing: SKShapeNode!  // Accessible for rainbow effect
     private var distortionRing: SKShapeNode?
     private var innerGlow: SKShapeNode?
@@ -367,6 +367,16 @@ class BlackHole: SKSpriteNode {
             }
         }
         run(colorAction)
+    }
+    
+    func updateIndicatorRing() {
+        // Update the photon ring to match current target type
+        photonRing.strokeColor = targetType.uiColor
+        
+        // Also update rim light color to match
+        if let rimLight = retroRimLight {
+            rimLight.strokeColor = blendColorWithWarmth(targetType.uiColor)
+        }
     }
     
     func canConsume(_ star: Star) -> Bool {

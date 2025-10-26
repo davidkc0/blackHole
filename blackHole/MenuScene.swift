@@ -475,13 +475,23 @@ class MenuScene: SKScene {
         // Stop menu music
         AudioManager.shared.stopBackgroundMusic()
         
-        // Create game scene
-        let gameScene = GameScene(size: size)
-        gameScene.scaleMode = .aspectFill
+        // Check if first time playing
+        let hasPlayedBefore = UserDefaults.standard.bool(forKey: "hasPlayedBefore")
+        
+        let nextScene: SKScene
+        if !hasPlayedBefore {
+            // First time - show tutorial
+            nextScene = TutorialScene(size: size)
+        } else {
+            // Experienced player - skip to game
+            nextScene = GameScene(size: size)
+        }
+        
+        nextScene.scaleMode = .aspectFill
         
         // Transition with fade
         let transition = SKTransition.fade(withDuration: 0.5)
-        view?.presentScene(gameScene, transition: transition)
+        view?.presentScene(nextScene, transition: transition)
     }
     
     private func showComingSoon() {

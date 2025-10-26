@@ -161,5 +161,27 @@ class HapticManager {
             stopAllDangerProximityHaptics()
         }
     }
+    
+    // MARK: - Tutorial Haptic Methods
+    
+    func playSelection() {
+        guard isHapticsEnabled else { return }
+        impactLight?.impactOccurred()
+    }
+    
+    func playSuccess() {
+        guard isHapticsEnabled else { return }
+        notification?.notificationOccurred(.success)
+    }
+    
+    func playError() {
+        guard isHapticsEnabled else { return }
+        notification?.notificationOccurred(.error)
+    }
+    
+    func playWarning() {
+        guard isHapticsEnabled else { return }
+        notification?.notificationOccurred(.warning)
+    }
 }
 
