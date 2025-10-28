@@ -108,6 +108,13 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     private var currentColorProfile = GameConstants.RetroAestheticSettings.defaultColorProfile
     private var colorGradingNode: SKEffectNode?
     
+    // Tutorial tip tracking
+    private var hasShownMovementTip = false
+    private var hasShownWrongColorTip = false
+    private var hasShownDangerStarTip = false
+    private var hasShownPowerUpTip = false
+    private var tipBannerNode: SKNode?
+    
     // MARK: - Scene Lifecycle
     
     override func didMove(to view: SKView) {
@@ -127,6 +134,11 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         
         // Initialize background star positions relative to camera
         updateBackgroundStars()
+        
+        // Show movement tip on first play
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?.checkAndShowMovementTip()
+        }
     }
     
     private func setupPowerUpSystem() {
@@ -374,7 +386,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     
     private func setupUI() {
         // Score label - attached to HUD (camera)
-        scoreLabel = SKLabelNode(fontNamed: "NDAstroneer-Bold")
+        scoreLabel = SKLabelNode(fontNamed: "NDAstroneer-Regular")
         scoreLabel.fontSize = GameConstants.scoreFontSize
         scoreLabel.fontColor = .white
         
@@ -1048,6 +1060,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
                 let isInDangerZone = blackHole.currentDiameter < 40
                 HapticManager.shared.playWrongStarHaptic(isInDangerZone: isInDangerZone)
                 
+                // Show wrong color tip
+                checkAndShowWrongColorTip()
+                
                 // Check for game over
                 if blackHole.isAtMinimumSize() {
                     gameOverReason = "Black hole shrunk too small"
@@ -1670,8 +1685,14 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         // Check star proximity for warnings
         checkStarProximity()
         
+        // Check for danger star tip
+        checkDangerStarTip()
+        
         // Update power-up system
         powerUpManager.update(currentTime: currentTime)
+        
+        // Check for power-up tip
+        checkPowerUpTip()
         
         // Check power-up expiration
         if activePowerUp.checkExpiration(currentTime: currentTime) {
@@ -1906,9 +1927,190 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     }
     
     private func formatScore(_ score: Int) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        return formatter.string(from: NSNumber(value: score)) ?? "\(score)"
+        return "\(score)"
+    }
+    
+    // MARK: - Tip Banner System
+    
+    private func isInCameraView(_ position: CGPoint) -> Bool {
+        guard let camera = cameraNode else { return false }
+        guard let view = self.view else { return false }
+        
+        let viewportSize = view.bounds.size
+        let cameraPos = camera.position
+        
+        // Convert world position to screen position
+        let worldPos = convert(position, to: camera)
+        let screenPos = CGPoint(
+            x: worldPos.x + viewportSize.width / 2,
+            y: worldPos.y + viewportSize.height / 2
+        )
+        
+        // Check if position is within visible screen bounds (with some margin)
+        return screenPos.x >= -50 && screenPos.x <= viewportSize.width + 50 &&
+               screenPos.y >= -50 && screenPos.y <= viewportSize.height + 50
+    }
+    
+    private func showTipBanner(text: String, duration: TimeInterval) {
+        // Remove old banner if exists
+        tipBannerNode?.removeFromParent()
+        
+        guard let camera = self.camera else { return }
+        
+        // Create banner background
+        let bannerWidth: CGFloat = min(350, UIScreen.main.bounds.width - 40)
+        let bannerHeight: CGFloat = 80
+        
+        let bannerBackground = SKShapeNode(rectOf: CGSize(width: bannerWidth, height: bannerHeight), cornerRadius: 16)
+        bannerBackground.fillColor = UIColor(hex: "#83D6FF").withAlphaComponent(0.24)
+        bannerBackground.strokeColor = UIColor(hex: "#83D6FF").withAlphaComponent(0.5)
+        bannerBackground.lineWidth = 1.5
+        bannerBackground.zPosition = 2000
+        
+        // Position centered horizontally, below Dynamic Island / status bar
+        let screenSize = UIScreen.main.bounds.size
+        var topMargin: CGFloat = 100  // Default margin from top
+        
+        // Account for Dynamic Island / notch on modern iPhones
+        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+           let window = windowScene.windows.first {
+            let safeAreaTop = window.safeAreaInsets.top
+            // Add extra space below the Dynamic Island / notch area and shrink gauge
+            topMargin = safeAreaTop + 130  // Lower to avoid shrink gauge
+        }
+        
+        let bannerX: CGFloat = 0  // Center horizontally
+        let bannerY: CGFloat = screenSize.height / 2 - topMargin
+        
+        bannerBackground.position = CGPoint(x: bannerX, y: bannerY)
+        
+        // Create text label
+        let label = SKLabelNode(fontNamed: "NDAstroneer-Regular")
+        label.text = text
+        label.fontSize = 16
+        label.fontColor = UIColor(hex: "#9FDFFF")
+        label.numberOfLines = 0
+        label.preferredMaxLayoutWidth = bannerWidth - 40
+        label.verticalAlignmentMode = .center
+        label.horizontalAlignmentMode = .center
+        label.position = CGPoint(x: bannerX, y: bannerY)
+        label.zPosition = 2001
+        
+        // Group banner and label
+        tipBannerNode = SKNode()
+        tipBannerNode?.addChild(bannerBackground)
+        tipBannerNode?.addChild(label)
+        camera.addChild(tipBannerNode!)
+        
+        // Fade in animation
+        tipBannerNode?.alpha = 0
+        tipBannerNode?.setScale(0.95)
+        let fadeIn = SKAction.fadeIn(withDuration: 0.3)
+        let scaleUp = SKAction.scale(to: 1.0, duration: 0.3)
+        scaleUp.timingMode = .easeOut
+        tipBannerNode?.run(SKAction.group([fadeIn, scaleUp]))
+        
+        // Pause game (but don't show pause overlay)
+        isGamePaused = true
+        physicsWorld.speed = 0
+        
+        // Pause timers by setting fireDate to distant future
+        if let starTimer = starSpawnTimer {
+            starTimer.fireDate = Date.distantFuture
+        }
+        if let colorTimer = colorChangeTimer {
+            colorTimer.fireDate = Date.distantFuture
+        }
+        
+        // Pause power-up animations
+        powerUpManager?.activePowerUps.forEach { powerUp in
+            powerUp.isPaused = true
+        }
+        
+        // Auto-dismiss after duration
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration) { [weak self] in
+            self?.dismissTipBanner()
+        }
+    }
+    
+    private func dismissTipBanner() {
+        let fadeOut = SKAction.fadeOut(withDuration: 0.3)
+        let remove = SKAction.removeFromParent()
+        tipBannerNode?.run(SKAction.sequence([fadeOut, remove])) {
+            self.tipBannerNode = nil
+        }
+        
+        // Resume game
+        isGamePaused = false
+        physicsWorld.speed = 1.0
+        
+        // Unpause timers by rescheduling them immediately with fresh intervals
+        // This ensures the color change interval stays proper (5-12 seconds)
+        scheduleNextStarSpawn()
+        scheduleNextColorChange()
+        
+        // Resume power-up animations
+        powerUpManager?.activePowerUps.forEach { powerUp in
+            powerUp.isPaused = false
+        }
+    }
+    
+    private func checkAndShowMovementTip() {
+        hasShownMovementTip = UserDefaults.standard.bool(forKey: "hasShownMovementTip")
+        if !hasShownMovementTip {
+            showTipBanner(text: "Touch and drag the black hole to move. Absorb stars that match the ring color around the black hole.", duration: 5.0)
+            UserDefaults.standard.set(true, forKey: "hasShownMovementTip")
+        }
+    }
+    
+    private func checkAndShowWrongColorTip() {
+        hasShownWrongColorTip = UserDefaults.standard.bool(forKey: "hasShownWrongColorTip")
+        if !hasShownWrongColorTip {
+            showTipBanner(text: "If you eat a star that does not match the ring color you will shrink.", duration: 3.0)
+            UserDefaults.standard.set(true, forKey: "hasShownWrongColorTip")
+        }
+    }
+    
+    private func checkAndShowDangerStarTip() {
+        hasShownDangerStarTip = UserDefaults.standard.bool(forKey: "hasShownDangerStarTip")
+        if !hasShownDangerStarTip {
+            showTipBanner(text: "Stay away from stars larger than you.", duration: 3.0)
+            UserDefaults.standard.set(true, forKey: "hasShownDangerStarTip")
+        }
+    }
+    
+    private func checkAndShowPowerUpTip() {
+        hasShownPowerUpTip = UserDefaults.standard.bool(forKey: "hasShownPowerUpTip")
+        if !hasShownPowerUpTip {
+            showTipBanner(text: "Absorb a comet to either freeze all stars or absorb any color for 8 seconds.", duration: 3.0)
+            UserDefaults.standard.set(true, forKey: "hasShownPowerUpTip")
+        }
+    }
+    
+    private func checkDangerStarTip() {
+        guard !hasShownDangerStarTip && !UserDefaults.standard.bool(forKey: "hasShownDangerStarTip") else { return }
+        
+        // Check if any star larger than black hole is in camera view
+        for star in stars {
+            if !blackHole.canConsume(star) && isInCameraView(star.position) {
+                checkAndShowDangerStarTip()
+                hasShownDangerStarTip = true
+                break
+            }
+        }
+    }
+    
+    private func checkPowerUpTip() {
+        guard !hasShownPowerUpTip && !UserDefaults.standard.bool(forKey: "hasShownPowerUpTip") else { return }
+        
+        // Check if any power-up is in camera view
+        for powerUp in powerUpManager.activePowerUps {
+            if isInCameraView(powerUp.position) {
+                checkAndShowPowerUpTip()
+                hasShownPowerUpTip = true
+                break
+            }
+        }
     }
     
     // MARK: - Game Over
@@ -2035,6 +2237,19 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         print("▶️ Game resumed")
     }
     
+    private func resumeGame() {
+        isGamePaused = false
+        
+        // Resume physics
+        physicsWorld.speed = 1.0
+        
+        // Resume timers
+        scheduleNextStarSpawn()
+        scheduleNextColorChange()
+        
+        print("▶️ Game resumed")
+    }
+    
     private func showPauseOverlay() {
         // Semi-transparent dark overlay
         pauseOverlay = SKSpriteNode(color: .black, size: CGSize(width: 5000, height: 5000))
@@ -2106,6 +2321,43 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     private func removePauseOverlay() {
         pauseOverlay?.removeFromParent()
         pauseOverlay = nil
+    }
+    
+    // MARK: - Background/Foreground Handling
+    
+    func pauseGameFromBackground() {
+        // Don't double-pause
+        guard !isGamePaused else { return }
+        guard !isGameOver else { return }
+        
+        isGamePaused = true
+        physicsWorld.speed = 0
+        
+        // Store timer fire dates before pausing
+        if let starTimer = starSpawnTimer {
+            // Push fire date forward indefinitely
+            starTimer.fireDate = Date.distantFuture
+        }
+        if let colorTimer = colorChangeTimer {
+            colorTimer.fireDate = Date.distantFuture
+        }
+        
+        print("📱 App backgrounded - game paused")
+    }
+    
+    func resumeGameFromForeground() {
+        // Don't resume if already playing or game over
+        guard isGamePaused else { return }
+        guard !isGameOver else { return }
+        
+        isGamePaused = false
+        physicsWorld.speed = 1.0
+        
+        // Resume timers with their original intervals
+        scheduleNextStarSpawn()
+        scheduleNextColorChange()
+        
+        print("📱 App foregrounded - game resumed")
     }
     
     // MARK: - Passive Shrink System

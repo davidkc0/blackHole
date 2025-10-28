@@ -4,9 +4,9 @@
 <dict>
 	<key>UIAppFonts</key>
 	<array>
-		<string>NDAstronner-Regular.ttf</string>
-		<string>NDAstronner-Bold.ttf</string>
-		<string>NDAstronner-Medium.ttf</string>
+		<string>NDAstroneer-Regular.ttf</string>
+		<string>NDAstroneer-Bold.ttf</string>
+		<string>NDAstroneer-Light.ttf</string>
 	</array>
 </dict>
 </plist>

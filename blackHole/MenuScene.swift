@@ -21,7 +21,8 @@ class MenuScene: SKScene {
     // UI Elements
     private var playButton: MenuButton!
     private var timedModeButton: MenuButton!
-    private var settingsButton: MenuButton!
+    private var settingsIconButton: IconButton!
+    private var discordIconButton: IconButton!
     
     // Animation state
     private var isTransitioning = false
@@ -57,9 +58,12 @@ class MenuScene: SKScene {
         } else if timedModeButton.contains(point: location) {
             timedModeButton.animatePress()
             print("✅ TIMED MODE button pressed")
-        } else if settingsButton.contains(point: location) {
-            settingsButton.animatePress()
+        } else if settingsIconButton.contains(point: location) {
+            settingsIconButton.animatePress()
             print("✅ SETTINGS button pressed")
+        } else if discordIconButton.contains(point: location) {
+            discordIconButton.animatePress()
+            print("✅ DISCORD button pressed")
         }
     }
     
@@ -78,10 +82,14 @@ class MenuScene: SKScene {
             timedModeButton.animateRelease()
             print("⏱ TIMED MODE button tapped")
             timedModeButton.onTap?()
-        } else if settingsButton.contains(point: location) {
-            settingsButton.animateRelease()
+        } else if settingsIconButton.contains(point: location) {
+            settingsIconButton.animateRelease()
             print("⚙️ SETTINGS button tapped")
-            settingsButton.onTap?()
+            settingsIconButton.onTap?()
+        } else if discordIconButton.contains(point: location) {
+            discordIconButton.animateRelease()
+            print("💬 DISCORD button tapped")
+            discordIconButton.onTap?()
         }
     }
     
@@ -266,8 +274,8 @@ class MenuScene: SKScene {
         // Timed Mode Button
         setupTimedModeButton()
         
-        // Settings Button
-        setupSettingsButton()
+        // Icon Buttons
+        setupIconButtons()
     }
     
     private func setupTitle() {
@@ -358,18 +366,31 @@ class MenuScene: SKScene {
         addChild(timedModeButton)
     }
     
-    private func setupSettingsButton() {
+    private func setupIconButtons() {
         let screenSize = UIScreen.main.bounds.size
-        let scale = min(screenSize.width, screenSize.height) / 400.0  // Scale factor for phone screens
         
-        settingsButton = MenuButton(text: "SETTINGS", size: .medium)
-        settingsButton.position = CGPoint(x: 0, y: -160 * scale)  // Scale position
-        settingsButton.zPosition = 100
-        settingsButton.alpha = 0.6  // Indicate not yet available
-        settingsButton.onTap = { [weak self] in
+        // Settings button (top-left)
+        settingsIconButton = IconButton(iconName: "settings")
+        let topLeftX = -screenSize.width / 2 + 24 + 20  // margin + half button size (40pt/2)
+        let topLeftY = screenSize.height / 2 - 24 - 20 - 20  // margin + half button size + 20pt down
+        settingsIconButton.position = CGPoint(x: topLeftX, y: topLeftY)
+        settingsIconButton.zPosition = 100
+        settingsIconButton.onTap = { [weak self] in
             self?.showComingSoon()
         }
-        addChild(settingsButton)
+        addChild(settingsIconButton)
+        
+        // Discord button (top-right)
+        discordIconButton = IconButton(iconName: "discord")
+        let topRightX = screenSize.width / 2 - 24 - 20  // margin + half button size (40pt/2)
+        let topRightY = screenSize.height / 2 - 24 - 20 - 20  // margin + half button size + 20pt down
+        discordIconButton.position = CGPoint(x: topRightX, y: topRightY)
+        discordIconButton.zPosition = 100
+        discordIconButton.onTap = {
+            // Placeholder for future Discord integration
+            print("Discord button tapped - feature coming soon")
+        }
+        addChild(discordIconButton)
     }
     
     // MARK: - Retro Effects
@@ -474,21 +495,11 @@ class MenuScene: SKScene {
     private func transitionToGame() {
         // Stop menu music
         AudioManager.shared.stopBackgroundMusic()
-        
-        // Check if first time playing
-        let hasPlayedBefore = UserDefaults.standard.bool(forKey: "hasPlayedBefore")
-        
-        let nextScene: SKScene
-        if !hasPlayedBefore {
-            // First time - show tutorial
-            nextScene = TutorialScene(size: size)
-        } else {
-            // Experienced player - skip to game
-            nextScene = GameScene(size: size)
-        }
-        
+
+        // Go directly to game
+        let nextScene = GameScene(size: size)
         nextScene.scaleMode = .aspectFill
-        
+
         // Transition with fade
         let transition = SKTransition.fade(withDuration: 0.5)
         view?.presentScene(nextScene, transition: transition)

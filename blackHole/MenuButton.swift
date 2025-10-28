@@ -31,6 +31,7 @@ class MenuButton: SKNode {
     
     private let label: SKLabelNode
     private let background: SKShapeNode
+    private let outerBorder: SKShapeNode
     private let size: ButtonSize
     var onTap: (() -> Void)?
     
@@ -44,9 +45,9 @@ class MenuButton: SKNode {
     init(text: String, size: ButtonSize = .medium) {
         self.size = size
         
-        // Create label
-        self.label = SKLabelNode(fontNamed: "NDAstroneer-Bold")
-        label.text = text
+        // Create label (uppercase)
+        self.label = SKLabelNode(fontNamed: "NDAstroneer-Regular")
+        label.text = text.uppercased()
         label.fontSize = size.fontSize
         label.fontColor = .white
         label.verticalAlignmentMode = .center
@@ -61,15 +62,31 @@ class MenuButton: SKNode {
                            width: bgSize.width, height: bgSize.height)
         
         self.background = SKShapeNode(rect: bgRect, cornerRadius: 8)
-        background.fillColor = UIColor(white: 0.1, alpha: 0.8)
-        background.strokeColor = UIColor(white: 0.5, alpha: 0.5)
-        background.lineWidth = 2
-        background.zPosition = 0
+        background.fillColor = UIColor(hex: "#83D6FF").withAlphaComponent(0.24)
+        background.strokeColor = UIColor(hex: "#83D6FF").withAlphaComponent(0.5)
+        background.lineWidth = 3
+        background.zPosition = 1
+        
+        // Create outer border with 6pt margin
+        let margin: CGFloat = 6
+        let outerRect = CGRect(
+            x: -bgSize.width/2 - margin,
+            y: -bgSize.height/2 - margin,
+            width: bgSize.width + (margin * 2),
+            height: bgSize.height + (margin * 2)
+        )
+        
+        self.outerBorder = SKShapeNode(rect: outerRect, cornerRadius: 8 + margin)
+        outerBorder.fillColor = .clear
+        outerBorder.strokeColor = UIColor(hex: "#83D6FF").withAlphaComponent(0.5)
+        outerBorder.lineWidth = 1.5
+        outerBorder.zPosition = 0
         
         super.init()
         
         self.name = "MenuButton_\(text)"
         
+        addChild(outerBorder)
         addChild(background)
         addChild(label)
         
@@ -86,13 +103,13 @@ class MenuButton: SKNode {
     }
     
     func animatePress() {
-        background.fillColor = UIColor(white: 0.2, alpha: 0.9)
+        background.fillColor = UIColor(hex: "#83D6FF").withAlphaComponent(0.35)
         let scaleDown = SKAction.scale(to: 0.95, duration: 0.1)
         run(scaleDown)
     }
     
     func animateRelease() {
-        background.fillColor = UIColor(white: 0.1, alpha: 0.8)
+        background.fillColor = UIColor(hex: "#83D6FF").withAlphaComponent(0.24)
         let scaleUp = SKAction.scale(to: 1.0, duration: 0.1)
         run(scaleUp)
     }

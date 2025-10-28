@@ -45,4 +45,44 @@ class GameViewController: UIViewController {
     override var prefersStatusBarHidden: Bool {
         return true
     }
+    
+    // Pause when app goes to background
+    @objc func applicationWillResignActive(notification: Notification) {
+        if let skView = view as? SKView, let gameScene = skView.scene as? GameScene {
+            gameScene.pauseGameFromBackground()
+        }
+    }
+    
+    // Resume when app comes to foreground
+    @objc func applicationDidBecomeActive(notification: Notification) {
+        if let skView = view as? SKView, let gameScene = skView.scene as? GameScene {
+            gameScene.resumeGameFromForeground()
+        }
+    }
+    
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        
+        // Observe app state changes
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(applicationWillResignActive(notification:)),
+            name: UIApplication.willResignActiveNotification,
+            object: nil
+        )
+        
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(applicationDidBecomeActive(notification:)),
+            name: UIApplication.didBecomeActiveNotification,
+            object: nil
+        )
+    }
+    
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        
+        // Remove observers
+        NotificationCenter.default.removeObserver(self)
+    }
 }
