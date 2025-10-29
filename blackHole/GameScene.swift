@@ -71,6 +71,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     private var gameOverLabel: SKLabelNode?
     private var finalScoreLabel: SKLabelNode?
     private var restartLabel: SKLabelNode?
+    private var restartButton: MenuButton?
+    private var hasTappedRestartButton = false
+    private var returnToMenuButton: MenuButton?
     
     private var isGameOver = false
     private var gameOverReason: String?
@@ -1573,6 +1576,15 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         
         // Handle paused state - check if tapped black hole to resume
         if isGamePaused {
+            // Check if "Return to Menu" button was tapped
+            if let returnToMenuButton = returnToMenuButton {
+                let buttonLocation = convert(location, to: returnToMenuButton.parent!)
+                if returnToMenuButton.contains(point: buttonLocation) {
+                    returnToMenuButton.animatePress()
+                    return
+                }
+            }
+            
             let distToBlackHole = distance(from: location, to: blackHole.position)
             let tapRadius = blackHole.currentDiameter / 2 + 50 // Generous tap area
             
@@ -1588,8 +1600,20 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         }
         
         if isGameOver {
-            // Tap anywhere to restart when game is over
-            restartGame()
+            // Check if restart button was tapped
+            if let restartButton = restartButton {
+                let buttonLocation = convert(location, to: restartButton.parent!)
+                if restartButton.contains(point: buttonLocation) {
+                    if !hasTappedRestartButton {
+                        // First tap - just animate press but don't restart
+                        restartButton.animatePress()
+                        hasTappedRestartButton = true
+                    } else {
+                        // Second tap - restart the game
+                        restartButton.animatePress()
+                    }
+                }
+            }
         } else {
             // Start tracking this touch for black hole movement
             isBlackHoleBeingMoved = true
@@ -1614,6 +1638,35 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard let touch = touches.first else { return }
+        
+        // Handle paused state "Return to Menu" button
+        if isGamePaused {
+            if let returnToMenuButton = returnToMenuButton {
+                let location = touch.location(in: self)
+                let buttonLocation = convert(location, to: returnToMenuButton.parent!)
+                if returnToMenuButton.contains(point: buttonLocation) {
+                    returnToMenuButton.animateRelease()
+                    returnToMenu()
+                    return
+                }
+            }
+        }
+        
+        // Handle game over restart button
+        if isGameOver {
+            if let restartButton = restartButton {
+                let location = touch.location(in: self)
+                let buttonLocation = convert(location, to: restartButton.parent!)
+                if restartButton.contains(point: buttonLocation) {
+                    restartButton.animateRelease()
+                    // Only restart on second tap
+                    if hasTappedRestartButton {
+                        restartGame()
+                        return
+                    }
+                }
+            }
+        }
         
         // If the active touch ended, stop tracking movement
         if touch == activeTouch {
@@ -2136,24 +2189,50 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     }
     
     private func showGameOverUI() {
-        // Game Over label - attached to HUD
+        // Create modal container
+        let modalContainer = SKNode()
+        modalContainer.name = "gameOverModal"
+        modalContainer.zPosition = 200
+        hudNode.addChild(modalContainer)
+        
+        // Add semi-transparent dark overlay
+        let overlay = SKSpriteNode(color: .black, size: CGSize(width: 5000, height: 5000))
+        overlay.alpha = 0.6
+        overlay.position = CGPoint.zero
+        overlay.zPosition = -1
+        modalContainer.addChild(overlay)
+        
+        // Create modal background
+        let modalWidth: CGFloat = 300
+        let modalHeight: CGFloat = 300  // Increased height to accommodate better spacing
+        let modalRect = CGRect(x: -modalWidth/2, y: -modalHeight/2, width: modalWidth, height: modalHeight)
+        let modalBackground = SKShapeNode(rect: modalRect, cornerRadius: 16)
+        modalBackground.fillColor = UIColor(hex: "#83D6FF").withAlphaComponent(0.24)
+        modalBackground.strokeColor = UIColor(hex: "#83D6FF").withAlphaComponent(0.5)
+        modalBackground.lineWidth = 1.5
+        modalBackground.zPosition = 0
+        modalContainer.addChild(modalBackground)
+        
+        // Game Over label
         gameOverLabel = SKLabelNode(fontNamed: "NDAstroneer-Bold")
         gameOverLabel!.text = "GAME OVER"
         gameOverLabel!.fontSize = GameConstants.gameOverFontSize
         gameOverLabel!.fontColor = .white
-        gameOverLabel!.position = CGPoint(x: 0, y: 120)
-        gameOverLabel!.zPosition = 200
-        hudNode.addChild(gameOverLabel!)
+        gameOverLabel!.position = CGPoint(x: 0, y: 80)  // Reduced from 100 to match bottom margin
+        gameOverLabel!.zPosition = 1
+        modalContainer.addChild(gameOverLabel!)
         
         // Game over reason label (if applicable)
+        var currentY: CGFloat = 40
         if let reason = gameOverReason {
             let reasonLabel = SKLabelNode(fontNamed: "NDAstroneer-Regular")
             reasonLabel.text = reason
             reasonLabel.fontSize = 20
-            reasonLabel.fontColor = .red
-            reasonLabel.position = CGPoint(x: 0, y: 80)
-            reasonLabel.zPosition = 200
-            hudNode.addChild(reasonLabel)
+            reasonLabel.fontColor = UIColor.white.withAlphaComponent(0.6)
+            reasonLabel.position = CGPoint(x: 0, y: currentY)
+            reasonLabel.zPosition = 1
+            modalContainer.addChild(reasonLabel)
+            currentY -= 50  // Increased spacing
         }
         
         // Final score label
@@ -2161,39 +2240,37 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         finalScoreLabel!.text = "Final Score: \(formatScore(GameManager.shared.currentScore))"
         finalScoreLabel!.fontSize = GameConstants.finalScoreFontSize
         finalScoreLabel!.fontColor = .white
-        finalScoreLabel!.position = CGPoint(x: 0, y: 30)
-        finalScoreLabel!.zPosition = 200
-        hudNode.addChild(finalScoreLabel!)
+        finalScoreLabel!.position = CGPoint(x: 0, y: currentY)
+        finalScoreLabel!.zPosition = 1
+        modalContainer.addChild(finalScoreLabel!)
+        currentY -= 60  // Increased spacing
         
         // High score label (if applicable)
         if GameManager.shared.currentScore == GameManager.shared.highScore && GameManager.shared.highScore > 0 {
             let highScoreLabel = SKLabelNode(fontNamed: "NDAstroneer-Regular")
             highScoreLabel.text = "New High Score!"
             highScoreLabel.fontSize = 28
-            highScoreLabel.fontColor = .yellow
-            highScoreLabel.position = CGPoint(x: 0, y: -20)
-            highScoreLabel.zPosition = 200
-            hudNode.addChild(highScoreLabel)
+            highScoreLabel.fontColor = UIColor.white.withAlphaComponent(0.6)
+            highScoreLabel.position = CGPoint(x: 0, y: currentY)
+            highScoreLabel.zPosition = 1
+            modalContainer.addChild(highScoreLabel)
             
             // Pulse animation
             let scaleUp = SKAction.scale(to: 1.1, duration: 0.5)
             let scaleDown = SKAction.scale(to: 1.0, duration: 0.5)
             highScoreLabel.run(SKAction.repeatForever(SKAction.sequence([scaleUp, scaleDown])))
+            currentY -= 70  // Increased spacing
         }
         
-        // Restart label
-        restartLabel = SKLabelNode(fontNamed: "NDAstroneer-Bold")
-        restartLabel!.text = "TAP TO RESTART"
-        restartLabel!.fontSize = GameConstants.restartFontSize
-        restartLabel!.fontColor = .lightGray
-        restartLabel!.position = CGPoint(x: 0, y: -80)
-        restartLabel!.zPosition = 200
-        hudNode.addChild(restartLabel!)
+        // Create restart button
+        let restartButton = MenuButton(text: "RESTART", size: .medium)
+        restartButton.position = CGPoint(x: 0, y: currentY - 20)  // Adjusted to match top margin
+        restartButton.name = "restartButton"
+        restartButton.zPosition = 1
+        modalContainer.addChild(restartButton)
         
-        // Blink animation for restart label
-        let fadeOut = SKAction.fadeAlpha(to: 0.3, duration: 0.8)
-        let fadeIn = SKAction.fadeAlpha(to: 1.0, duration: 0.8)
-        restartLabel!.run(SKAction.repeatForever(SKAction.sequence([fadeOut, fadeIn])))
+        // Store reference to restart button for touch handling
+        self.restartButton = restartButton
     }
     
     // MARK: - Pause System
@@ -2260,6 +2337,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         
         pauseOverlay!.run(SKAction.fadeAlpha(to: 0.6, duration: 0.2))
         
+        // Get screen size for positioning
+        let screenSize = UIScreen.main.bounds.size
+        
         // "PAUSED" title
         let pauseTitle = SKLabelNode(fontNamed: "NDAstroneer-Bold")
         pauseTitle.text = "PAUSED"
@@ -2275,7 +2355,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         let resumeLabel = SKLabelNode(fontNamed: "NDAstroneer-Bold")
         resumeLabel.text = "Tap Black Hole to Resume"
         resumeLabel.fontSize = 24
-        resumeLabel.fontColor = .lightGray
+        resumeLabel.fontColor = .white
         resumeLabel.position = CGPoint(x: 0, y: 100)
         resumeLabel.zPosition = 151
         resumeLabel.name = "resumeLabel"
@@ -2289,9 +2369,20 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         // Blink animation for resume instruction
         let blink = SKAction.sequence([
             SKAction.fadeAlpha(to: 0.4, duration: 0.8),
-            SKAction.fadeAlpha(to: 1.0, duration: 0.8)
+            SKAction.fadeAlpha(to: 0.8, duration: 0.8)
         ])
         resumeLabel.run(SKAction.repeatForever(blink))
+        
+        // Create "Return to Menu" button
+        returnToMenuButton = MenuButton(text: "RETURN TO MENU", size: .medium)
+        returnToMenuButton!.position = CGPoint(x: 0, y: -screenSize.height/2 + 54)  // 54pt from bottom
+        returnToMenuButton!.name = "returnToMenuButton"
+        returnToMenuButton!.zPosition = 151
+        returnToMenuButton!.alpha = 0
+        pauseOverlay!.addChild(returnToMenuButton!)
+        
+        // Fade in button
+        returnToMenuButton!.run(SKAction.fadeIn(withDuration: 0.3))
     }
     
     private func showBlackHoleResumeIndicator() {
@@ -2321,6 +2412,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     private func removePauseOverlay() {
         pauseOverlay?.removeFromParent()
         pauseOverlay = nil
+        returnToMenuButton = nil
     }
     
     // MARK: - Background/Foreground Handling
@@ -2356,6 +2448,10 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         // Resume timers with their original intervals
         scheduleNextStarSpawn()
         scheduleNextColorChange()
+        
+        // Remove any existing pause overlay (from manual pause)
+        removePauseOverlay()
+        blackHole.childNode(withName: "resumeIndicator")?.removeFromParent()
         
         print("📱 App foregrounded - game resumed")
     }
@@ -2426,7 +2522,21 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         hudNode.addChild(shrinkIndicatorFill!)
     }
     
+    private func returnToMenu() {
+        // Create menu scene
+        let menuScene = MenuScene(size: size)
+        menuScene.scaleMode = .aspectFill
+        
+        // Transition to menu
+        view?.presentScene(menuScene, transition: SKTransition.fade(withDuration: 0.5))
+    }
+    
     private func restartGame() {
+        // Clean up game over modal
+        hudNode.childNode(withName: "gameOverModal")?.removeFromParent()
+        restartButton = nil
+        hasTappedRestartButton = false
+        
         // Reset game manager
         GameManager.shared.resetScore()
         

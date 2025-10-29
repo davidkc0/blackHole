@@ -82,7 +82,7 @@ enum GameConstants {
     // Star-to-Star Interactions
     static let starGravityMultiplier: CGFloat = 0.15
     static let starGravityRange: CGFloat = 250
-    static let maxMergedStars: Int = 4
+    static let maxMergedStars: Int = 10
     static let mergeCooldown: TimeInterval = 1.5
     static let minMergeSizeRequirement: CGFloat = 20
     static let mergeDistanceFromBlackHole: CGFloat = 100
