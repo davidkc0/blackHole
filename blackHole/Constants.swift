@@ -78,6 +78,7 @@ enum GameConstants {
     // Color Change
     static let colorChangeMinInterval: TimeInterval = 5.0
     static let colorChangeMaxInterval: TimeInterval = 12.0
+    static let colorChangeWarningDuration: TimeInterval = 2.0  // Blink for 3 seconds before change
     
     // Star-to-Star Interactions
     static let starGravityMultiplier: CGFloat = 0.15

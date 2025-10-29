@@ -602,9 +602,43 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         // Random interval between min and max
         let interval = TimeInterval.random(in: GameConstants.colorChangeMinInterval...GameConstants.colorChangeMaxInterval)
         
+        // Store current target type to check if it will actually change
+        let currentTargetType = blackHole.targetType
+        
+        // Check what the new color will be (do this now, not in the timer closure)
+        let availableTypes = getAvailableStarTypes()
+        let newType: StarType
+        
+        if availableTypes.count > 1 {
+            let differentTypes = availableTypes.filter { $0 != blackHole.targetType }
+            newType = differentTypes.randomElement() ?? availableTypes.randomElement() ?? .whiteDwarf
+        } else {
+            newType = availableTypes.first ?? .whiteDwarf
+        }
+        
+        // Only warn and change if the color is actually changing
+        if newType != currentTargetType {
+            // Schedule warning to start before the actual change
+            let warningStartTime = interval - GameConstants.colorChangeWarningDuration
+            
+            // Start blinking warning if there's enough time for the warning
+            if warningStartTime > 0 {
+                _ = Timer.scheduledTimer(withTimeInterval: warningStartTime, repeats: false) { [weak self] _ in
+                    self?.startColorChangeWarning()
+                }
+            }
+        }
+        
         colorChangeTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: false) { [weak self] _ in
-            self?.changeTargetColor()
-            self?.scheduleNextColorChange()  // Reschedule with new random interval
+            guard let self = self else { return }
+            
+            // Only change color if it's actually different
+            if newType != currentTargetType {
+                self.stopColorChangeWarning()
+                self.blackHole.updateTargetType(to: newType)
+            }
+            
+            self.scheduleNextColorChange()  // Reschedule with new random interval
         }
     }
     
@@ -848,19 +882,35 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         }
     }
     
-    private func changeTargetColor() {
+    private func startColorChangeWarning() {
         guard !isGameOver else { return }
-        let availableTypes = getAvailableStarTypes()
         
-        // Don't repeat the same color (unless it's the only option)
-        if availableTypes.count > 1 {
-            let differentTypes = availableTypes.filter { $0 != blackHole.targetType }
-            let newType = differentTypes.randomElement() ?? availableTypes.randomElement() ?? .whiteDwarf
-            blackHole.updateTargetType(to: newType)
-        } else {
-            // Only one color available, no choice but to repeat
-            let newType = availableTypes.first ?? .whiteDwarf
-            blackHole.updateTargetType(to: newType)
+        // Create rapid blinking animation on photon ring
+        let blinkOut = SKAction.fadeAlpha(to: 0.2, duration: 0.2)
+        let blinkIn = SKAction.fadeAlpha(to: 1.0, duration: 0.2)
+        let blinkSequence = SKAction.sequence([blinkOut, blinkIn])
+        
+        // Create a repeating action and group it with a duration timer to ensure exact timing
+        let repeatBlink = SKAction.repeatForever(blinkSequence)
+        let durationAction = SKAction.wait(forDuration: GameConstants.colorChangeWarningDuration)
+        let blinking = SKAction.group([repeatBlink, durationAction])
+        
+        blackHole.photonRing.run(blinking, withKey: "colorChangeWarning")
+        
+        // Also blink the rim light for more visibility
+        if let rimLight = blackHole.retroRimLight {
+            rimLight.run(blinking, withKey: "colorChangeWarningRim")
+        }
+    }
+    
+    private func stopColorChangeWarning() {
+        // Stop blinking animation
+        blackHole.photonRing.removeAction(forKey: "colorChangeWarning")
+        blackHole.photonRing.alpha = 1.0  // Ensure it's fully visible
+        
+        if let rimLight = blackHole.retroRimLight {
+            rimLight.removeAction(forKey: "colorChangeWarningRim")
+            rimLight.alpha = RetroAestheticManager.Config.rimLightIntensity
         }
     }
     
@@ -2174,6 +2224,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         // Stop all danger proximity haptics
         HapticManager.shared.stopAllDangerProximityHaptics()
         
+        // Stop color change warning if active
+        stopColorChangeWarning()
+        
         // Stop timers
         starSpawnTimer?.invalidate()
         colorChangeTimer?.invalidate()
@@ -2280,6 +2333,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         
         // Freeze physics
         physicsWorld.speed = 0
+        
+        // Stop color change warning if active
+        stopColorChangeWarning()
         
         // Pause timers
         starSpawnTimer?.invalidate()
@@ -2424,6 +2480,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         
         isGamePaused = true
         physicsWorld.speed = 0
+        
+        // Stop color change warning if active
+        stopColorChangeWarning()
         
         // Store timer fire dates before pausing
         if let starTimer = starSpawnTimer {
