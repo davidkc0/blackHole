@@ -42,7 +42,7 @@ class MenuButton: SKNode {
         )
     }
     
-    init(text: String, size: ButtonSize = .medium) {
+    init(text: String, size: ButtonSize = .medium, fixedWidth: CGFloat? = nil) {
         self.size = size
         
         // Create label (uppercase)
@@ -54,14 +54,16 @@ class MenuButton: SKNode {
         label.zPosition = 2
         
         // Create background
+        let calculatedWidth = label.frame.width + size.padding.width
+        let buttonWidth = fixedWidth ?? calculatedWidth
         let bgSize = CGSize(
-            width: label.frame.width + size.padding.width,
+            width: buttonWidth,
             height: label.frame.height + size.padding.height
         )
         let bgRect = CGRect(x: -bgSize.width/2, y: -bgSize.height/2, 
                            width: bgSize.width, height: bgSize.height)
         
-        self.background = SKShapeNode(rect: bgRect, cornerRadius: 8)
+        self.background = SKShapeNode(rect: bgRect, cornerRadius: 4)
         background.fillColor = UIColor(hex: "#83D6FF").withAlphaComponent(0.24)
         background.strokeColor = UIColor(hex: "#83D6FF").withAlphaComponent(0.5)
         background.lineWidth = 3
@@ -76,7 +78,7 @@ class MenuButton: SKNode {
             height: bgSize.height + (margin * 2)
         )
         
-        self.outerBorder = SKShapeNode(rect: outerRect, cornerRadius: 8 + margin)
+        self.outerBorder = SKShapeNode(rect: outerRect, cornerRadius: 4 + margin)
         outerBorder.fillColor = .clear
         outerBorder.strokeColor = UIColor(hex: "#83D6FF").withAlphaComponent(0.5)
         outerBorder.lineWidth = 1.5

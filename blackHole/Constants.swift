@@ -78,7 +78,7 @@ enum GameConstants {
     // Color Change
     static let colorChangeMinInterval: TimeInterval = 5.0
     static let colorChangeMaxInterval: TimeInterval = 12.0
-    static let colorChangeWarningDuration: TimeInterval = 2.0  // Blink for 3 seconds before change
+    static let colorChangeWarningDuration: TimeInterval = 2.0  // Blink for 2 seconds before change
     
     // Star-to-Star Interactions
     static let starGravityMultiplier: CGFloat = 0.15
@@ -89,6 +89,13 @@ enum GameConstants {
     static let mergeDistanceFromBlackHole: CGFloat = 100
     static let mergedStarPointsMultiplier: Double = 1.5
     static let enableStarMerging: Bool = true
+    static let maxMergesPerStar: Int = 3  // Allow stars to merge up to 3 times
+    
+    // Orbital Interaction (when max merge limit reached)
+    static let orbitalSpeedMultiplier: CGFloat = 1.2      // Faster orbit
+    static let orbitalDuration: TimeInterval = 0.4        // How long the orbit lasts
+    static let escapeSpeedMultiplier: CGFloat = 1.5       // Stronger fling
+    static let orbitalVelocityInheritance: CGFloat = 0.3  // How much of larger star's velocity is inherited
     
     // UI (adjusted for Dynamic Island clearance)
     static let scoreLabelTopMargin: CGFloat = 70

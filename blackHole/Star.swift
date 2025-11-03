@@ -10,7 +10,7 @@ import SpriteKit
 class Star: SKSpriteNode {
     let starType: StarType
     private var warningGlow: SKShapeNode?
-    var hasBeenMerged: Bool = false
+    var mergeCount: Int = 0  // Track how many times this star has been merged
     var isMergedStar: Bool = false
     var hasBeenProcessed: Bool = false  // Prevent multiple collision processing
     var basePoints: Int

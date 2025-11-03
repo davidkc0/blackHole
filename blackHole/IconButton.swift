@@ -14,7 +14,7 @@ class IconButton: SKNode {
     private let icon: SKSpriteNode
     var onTap: (() -> Void)?
     
-    init(iconName: String, size: CGFloat = 40, cornerRadius: CGFloat = 10) {
+    init(iconName: String, size: CGFloat = 40, cornerRadius: CGFloat = 5) {
         // Create icon sprite
         let iconTexture = SKTexture(imageNamed: iconName)
         iconTexture.filteringMode = .nearest  // Crisp vector edges

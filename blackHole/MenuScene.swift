@@ -22,6 +22,7 @@ class MenuScene: SKScene {
     private var playButton: MenuButton!
     private var timedModeButton: MenuButton!
     private var settingsIconButton: IconButton!
+    private var statsIconButton: IconButton!
     private var discordIconButton: IconButton!
     
     // Animation state
@@ -61,6 +62,9 @@ class MenuScene: SKScene {
         } else if settingsIconButton.contains(point: location) {
             settingsIconButton.animatePress()
             print("✅ SETTINGS button pressed")
+        } else if statsIconButton.contains(point: location) {
+            statsIconButton.animatePress()
+            print("✅ STATS button pressed")
         } else if discordIconButton.contains(point: location) {
             discordIconButton.animatePress()
             print("✅ DISCORD button pressed")
@@ -86,6 +90,10 @@ class MenuScene: SKScene {
             settingsIconButton.animateRelease()
             print("⚙️ SETTINGS button tapped")
             settingsIconButton.onTap?()
+        } else if statsIconButton.contains(point: location) {
+            statsIconButton.animateRelease()
+            print("📊 STATS button tapped")
+            statsIconButton.onTap?()
         } else if discordIconButton.contains(point: location) {
             discordIconButton.animateRelease()
             print("💬 DISCORD button tapped")
@@ -379,6 +387,16 @@ class MenuScene: SKScene {
             self?.showComingSoon()
         }
         addChild(settingsIconButton)
+        
+        // Stats button (to the right of settings button)
+        statsIconButton = IconButton(iconName: "chart")
+        let statsX = topLeftX + 64  // 40pt button + 24pt spacing
+        statsIconButton.position = CGPoint(x: statsX, y: topLeftY)
+        statsIconButton.zPosition = 100
+        statsIconButton.onTap = { [weak self] in
+            self?.showComingSoon()
+        }
+        addChild(statsIconButton)
         
         // Discord button (top-right)
         discordIconButton = IconButton(iconName: "discord")

@@ -113,6 +113,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     
     // Tutorial tip tracking
     private var hasShownMovementTip = false
+    private var hasShownShrinkGaugeTip = false
     private var hasShownWrongColorTip = false
     private var hasShownDangerStarTip = false
     private var hasShownPowerUpTip = false
@@ -915,44 +916,17 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     }
     
     private func getAvailableStarTypes() -> [StarType] {
-        let size = blackHole.currentDiameter
-        
-        // TARGET AVAILABILITY THRESHOLDS: Higher than spawn thresholds
-        // These control which colors appear in the color indicator
-        // Stars spawn BEFORE they're eatable, creating "goal" stars
-        
-        let phaseTypes: [StarType]
-        if size < 48 {
-            // Phase 1: Only whites can be targets (30-48pt)
-            // Yellows may spawn at 35pt but can't be eaten yet
-            phaseTypes = [.whiteDwarf]
-        } else if size < 80 {
-            // Phase 2: Whites + Yellows can be targets (48-80pt)
-            // Blues may spawn at 55pt but can't be eaten yet
-            phaseTypes = [.whiteDwarf, .yellowDwarf]
-        } else if size < 140 {
-            // Phase 3: Whites + Yellows + Blues can be targets (80-140pt)
-            // Oranges may spawn at 85pt but can't be eaten yet
-            phaseTypes = [.whiteDwarf, .yellowDwarf, .blueGiant]
-        } else if size < 320 {
-            // Phase 4: Add Oranges as targets (140-320pt)
-            // Reds may spawn at 130pt but can't be eaten yet
-            phaseTypes = [.whiteDwarf, .yellowDwarf, .blueGiant, .orangeGiant]
-        } else {
-            // Phase 5: All colors available as targets (320pt+)
-            phaseTypes = Array(StarType.allCases)
-        }
-        
-        // Filter to only types that have at least one edible star currently on screen
-        let edibleTypes = phaseTypes.filter { type in
+        // Check ALL stars currently in the game (not just visible)
+        // Include a color in the indicator if ANY edible star of that color exists
+        let edibleTypes = StarType.allCases.filter { type in
             stars.contains { star in
                 star.starType == type && blackHole.canConsume(star)
             }
         }
         
-        // Fallback: if no edible stars of phase types, use phase types
+        // Fallback: if no edible stars exist at all, at least show white dwarfs
         // (prevents indicator from going blank in edge cases)
-        return edibleTypes.isEmpty ? phaseTypes : edibleTypes
+        return edibleTypes.isEmpty ? [.whiteDwarf] : edibleTypes
     }
     
     private func applyGravity() {
@@ -962,6 +936,11 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         let blackHoleMass = blackHoleRadius * blackHoleRadius
         
         for star in stars {
+            // Skip stars that are in orbital state (handled by orbital interaction)
+            if star.name?.hasPrefix("orbital_") == true {
+                continue
+            }
+            
             let dist = distance(from: star.position, to: blackHole.position)
             
             // Only apply gravity if within range
@@ -1150,29 +1129,34 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         
         // Safeguard 1: Check merged star limit
         guard mergedStarCount < GameConstants.maxMergedStars else {
-            print("🚫 Merge blocked: max merged stars reached (\(mergedStarCount)/\(GameConstants.maxMergedStars))")
+            print("🚫 Merge blocked: max merged stars reached - initiating orbital interaction")
+            handleOrbitalInteraction(star1: star1, star2: star2)
             return
         }
         
         // Safeguard 2: Check cooldown
         guard currentTime - lastMergeTime > GameConstants.mergeCooldown else {
-            print("🚫 Merge blocked: cooldown (\(String(format: "%.1f", currentTime - lastMergeTime))s/\(GameConstants.mergeCooldown)s)")
+            print("🚫 Merge blocked: cooldown (\(String(format: "%.1f", currentTime - lastMergeTime))s/\(GameConstants.mergeCooldown)s) - initiating orbital interaction")
+            handleOrbitalInteraction(star1: star1, star2: star2)
             return
         }
         
         // Safeguard 3: Check minimum size
         guard star1.size.width >= GameConstants.minMergeSizeRequirement else {
-            print("🚫 Merge blocked: star1 too small (\(String(format: "%.0f", star1.size.width))pt < \(GameConstants.minMergeSizeRequirement)pt)")
+            print("🚫 Merge blocked: star1 too small (\(String(format: "%.0f", star1.size.width))pt < \(GameConstants.minMergeSizeRequirement)pt) - initiating orbital interaction")
+            handleOrbitalInteraction(star1: star1, star2: star2)
             return
         }
         guard star2.size.width >= GameConstants.minMergeSizeRequirement else {
-            print("🚫 Merge blocked: star2 too small (\(String(format: "%.0f", star2.size.width))pt < \(GameConstants.minMergeSizeRequirement)pt)")
+            print("🚫 Merge blocked: star2 too small (\(String(format: "%.0f", star2.size.width))pt < \(GameConstants.minMergeSizeRequirement)pt) - initiating orbital interaction")
+            handleOrbitalInteraction(star1: star1, star2: star2)
             return
         }
         
-        // Safeguard 4: Neither star has already been merged
-        guard !star1.hasBeenMerged && !star2.hasBeenMerged else {
-            print("🚫 Merge blocked: star already merged")
+        // Safeguard 4: Neither star has exceeded merge limit
+        guard star1.mergeCount < GameConstants.maxMergesPerStar && star2.mergeCount < GameConstants.maxMergesPerStar else {
+            print("🚫 Merge blocked: star merge limit reached (star1: \(star1.mergeCount), star2: \(star2.mergeCount)) - initiating orbital interaction")
+            handleOrbitalInteraction(star1: star1, star2: star2)
             return
         }
         
@@ -1180,11 +1164,13 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         let distToBlackHole1 = distance(from: star1.position, to: blackHole.position)
         let distToBlackHole2 = distance(from: star2.position, to: blackHole.position)
         guard distToBlackHole1 > GameConstants.mergeDistanceFromBlackHole else {
-            print("🚫 Merge blocked: star1 too close to black hole (\(String(format: "%.0f", distToBlackHole1))pt < \(GameConstants.mergeDistanceFromBlackHole)pt)")
+            print("🚫 Merge blocked: star1 too close to black hole (\(String(format: "%.0f", distToBlackHole1))pt < \(GameConstants.mergeDistanceFromBlackHole)pt) - initiating orbital interaction")
+            handleOrbitalInteraction(star1: star1, star2: star2)
             return
         }
         guard distToBlackHole2 > GameConstants.mergeDistanceFromBlackHole else {
-            print("🚫 Merge blocked: star2 too close to black hole (\(String(format: "%.0f", distToBlackHole2))pt < \(GameConstants.mergeDistanceFromBlackHole)pt)")
+            print("🚫 Merge blocked: star2 too close to black hole (\(String(format: "%.0f", distToBlackHole2))pt < \(GameConstants.mergeDistanceFromBlackHole)pt) - initiating orbital interaction")
+            handleOrbitalInteraction(star1: star1, star2: star2)
             return
         }
         
@@ -1216,6 +1202,107 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         star2.removeFromParent()
     }
     
+    private func handleOrbitalInteraction(star1: Star, star2: Star) {
+        // Determine which star is larger based on mass (radius squared)
+        let radius1 = star1.size.width / 2
+        let radius2 = star2.size.width / 2
+        let (largerStar, smallerStar) = radius1 >= radius2 ? (star1, star2) : (star2, star1)
+        
+        // Calculate distance between stars
+        let dx = largerStar.position.x - smallerStar.position.x
+        let dy = largerStar.position.y - smallerStar.position.y
+        let distance = sqrt(dx * dx + dy * dy)
+        
+        guard distance > 0 else { return }
+        
+        // IMPORTANT: Mark smaller star as orbital to exclude from black hole gravity
+        smallerStar.name = "orbital_\(UUID().uuidString)"
+        
+        // IMPORTANT: Disable collision between these two stars during orbital interaction
+        let originalSmallerBitMask = smallerStar.physicsBody?.collisionBitMask ?? 0
+        let originalLargerBitMask = largerStar.physicsBody?.collisionBitMask ?? 0
+        smallerStar.physicsBody?.collisionBitMask = 0
+        largerStar.physicsBody?.collisionBitMask = 0
+        
+        // Reduce damping for smoother orbital motion
+        let originalSmallerDamping = smallerStar.physicsBody?.linearDamping ?? 0.3
+        smallerStar.physicsBody?.linearDamping = 0.05
+        
+        // Calculate mass of larger star
+        let largerMass = pow(radius1 >= radius2 ? radius1 : radius2, 2)
+        
+        // Calculate orbital velocity: v = sqrt(G * M / r) * multiplier
+        let orbitalSpeed = sqrt((GameConstants.gravitationalConstant * largerMass) / distance) * GameConstants.orbitalSpeedMultiplier
+        
+        // Calculate perpendicular velocity to create circular orbit
+        let angle = atan2(dy, dx)
+        let perpendicularAngle = angle + CGFloat.pi / 2
+        
+        // Apply perpendicular velocity
+        smallerStar.physicsBody?.velocity = CGVector(
+            dx: cos(perpendicularAngle) * orbitalSpeed,
+            dy: sin(perpendicularAngle) * orbitalSpeed
+        )
+        
+        // Inherit some of the larger star's velocity
+        if let largerVel = largerStar.physicsBody?.velocity {
+            smallerStar.physicsBody?.velocity = CGVector(
+                dx: smallerStar.physicsBody!.velocity.dx + largerVel.dx * GameConstants.orbitalVelocityInheritance,
+                dy: smallerStar.physicsBody!.velocity.dy + largerVel.dy * GameConstants.orbitalVelocityInheritance
+            )
+        }
+        
+        // Schedule fling-away after orbital duration
+        Timer.scheduledTimer(withTimeInterval: GameConstants.orbitalDuration, repeats: false) { [weak self] _ in
+            self?.flingStarAway(smaller: smallerStar, larger: largerStar, originalSmallerBitMask: originalSmallerBitMask, originalLargerBitMask: originalLargerBitMask, originalSmallerDamping: originalSmallerDamping)
+        }
+    }
+    
+    private func flingStarAway(smaller: Star, larger: Star, originalSmallerBitMask: UInt32, originalLargerBitMask: UInt32, originalSmallerDamping: CGFloat) {
+        // Calculate distance between stars
+        let dx = larger.position.x - smaller.position.x
+        let dy = larger.position.y - smaller.position.y
+        let distance = sqrt(dx * dx + dy * dy)
+        
+        guard distance > 0 else {
+            // Re-enable collision bitmasks and restore name if no fling happens
+            smaller.physicsBody?.collisionBitMask = originalSmallerBitMask
+            larger.physicsBody?.collisionBitMask = originalLargerBitMask
+            smaller.physicsBody?.linearDamping = originalSmallerDamping
+            smaller.name = nil  // Remove orbital marker
+            return
+        }
+        
+        // Calculate mass of larger star
+        let largerRadius = larger.size.width / 2
+        let largerMass = pow(largerRadius, 2)
+        
+        // Calculate escape velocity: v = sqrt(2 * G * M / r) * multiplier
+        let escapeSpeed = sqrt((2 * GameConstants.gravitationalConstant * largerMass) / distance) * GameConstants.escapeSpeedMultiplier
+        
+        // Calculate direction away from larger star
+        let angle = atan2(dy, dx)
+        let flingDirection = CGVector(dx: cos(angle), dy: sin(angle))
+        
+        // Apply strong escape velocity as an impulse (not just velocity)
+        if let mass = smaller.physicsBody?.mass {
+            smaller.physicsBody?.applyImpulse(CGVector(
+                dx: flingDirection.dx * escapeSpeed * mass,
+                dy: flingDirection.dy * escapeSpeed * mass
+            ))
+        }
+        
+        // Re-enable collision bitmasks and restore damping
+        smaller.physicsBody?.collisionBitMask = originalSmallerBitMask
+        larger.physicsBody?.collisionBitMask = originalLargerBitMask
+        smaller.physicsBody?.linearDamping = originalSmallerDamping
+        
+        // IMPORTANT: Remove orbital marker so gravity applies again
+        smaller.name = nil
+        
+        print("🚀 Star flung away at \(String(format: "%.1f", escapeSpeed)) pts/s")
+    }
+    
     private func createMergedStar(from star1: Star, and star2: Star) -> Star {
         // Calculate combined radius using area formula
         let radius1 = star1.size.width / 2
@@ -1233,8 +1320,8 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         // Override size to exact calculated value
         mergedStar.size = CGSize(width: newDiameter, height: newDiameter)
         
-        // Mark as merged
-        mergedStar.hasBeenMerged = true
+        // Set merge count to max of the two stars plus 1
+        mergedStar.mergeCount = max(star1.mergeCount, star2.mergeCount) + 1
         mergedStar.isMergedStar = true
         
         // Calculate bonus points (50% more)
@@ -1662,6 +1749,15 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
                         // Second tap - restart the game
                         restartButton.animatePress()
                     }
+                    return
+                }
+            }
+            
+            // Check if return to menu button was tapped
+            if let returnToMenuButton = returnToMenuButton {
+                let buttonLocation = convert(location, to: returnToMenuButton.parent!)
+                if returnToMenuButton.contains(point: buttonLocation) {
+                    returnToMenuButton.animatePress()
                 }
             }
         } else {
@@ -1702,7 +1798,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             }
         }
         
-        // Handle game over restart button
+        // Handle game over buttons
         if isGameOver {
             if let restartButton = restartButton {
                 let location = touch.location(in: self)
@@ -1714,6 +1810,16 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
                         restartGame()
                         return
                     }
+                }
+            }
+            
+            if let returnToMenuButton = returnToMenuButton {
+                let location = touch.location(in: self)
+                let buttonLocation = convert(location, to: returnToMenuButton.parent!)
+                if returnToMenuButton.contains(point: buttonLocation) {
+                    returnToMenuButton.animateRelease()
+                    returnToMenu()
+                    return
                 }
             }
         }
@@ -2064,7 +2170,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         let bannerWidth: CGFloat = min(350, UIScreen.main.bounds.width - 40)
         let bannerHeight: CGFloat = 80
         
-        let bannerBackground = SKShapeNode(rectOf: CGSize(width: bannerWidth, height: bannerHeight), cornerRadius: 16)
+        let bannerBackground = SKShapeNode(rectOf: CGSize(width: bannerWidth, height: bannerHeight), cornerRadius: 8)
         bannerBackground.fillColor = UIColor(hex: "#83D6FF").withAlphaComponent(0.24)
         bannerBackground.strokeColor = UIColor(hex: "#83D6FF").withAlphaComponent(0.5)
         bannerBackground.lineWidth = 1.5
@@ -2156,6 +2262,13 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         powerUpManager?.activePowerUps.forEach { powerUp in
             powerUp.isPaused = false
         }
+        
+        // Check if we should show the shrink gauge tip after movement tip
+        if !self.hasShownShrinkGaugeTip && self.hasShownMovementTip {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                self?.checkAndShowShrinkGaugeTip()
+            }
+        }
     }
     
     private func checkAndShowMovementTip() {
@@ -2166,10 +2279,18 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         }
     }
     
+    private func checkAndShowShrinkGaugeTip() {
+        hasShownShrinkGaugeTip = UserDefaults.standard.bool(forKey: "hasShownShrinkGaugeTip")
+        if !hasShownShrinkGaugeTip {
+            showTipBanner(text: "The cyan gauge shows your size. Your black hole shrinks over time if you don't absorb stars.", duration: 4.0)
+            UserDefaults.standard.set(true, forKey: "hasShownShrinkGaugeTip")
+        }
+    }
+    
     private func checkAndShowWrongColorTip() {
         hasShownWrongColorTip = UserDefaults.standard.bool(forKey: "hasShownWrongColorTip")
         if !hasShownWrongColorTip {
-            showTipBanner(text: "If you eat a star that does not match the ring color you will shrink.", duration: 3.0)
+            showTipBanner(text: "If you absorb a star that does not match the ring color you'll shrink.", duration: 3.0)
             UserDefaults.standard.set(true, forKey: "hasShownWrongColorTip")
         }
     }
@@ -2255,55 +2376,68 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         overlay.zPosition = -1
         modalContainer.addChild(overlay)
         
-        // Create modal background
+        // Determine if we have a new high score (needed for dynamic modal height)
+        let hasNewHighScore = GameManager.shared.currentScore == GameManager.shared.highScore && GameManager.shared.highScore > 0
+        
+        // Fixed modal and button width - all three should be the same width
         let modalWidth: CGFloat = 300
-        let modalHeight: CGFloat = 300  // Increased height to accommodate better spacing
-        let modalRect = CGRect(x: -modalWidth/2, y: -modalHeight/2, width: modalWidth, height: modalHeight)
-        let modalBackground = SKShapeNode(rect: modalRect, cornerRadius: 16)
-        modalBackground.fillColor = UIColor(hex: "#83D6FF").withAlphaComponent(0.24)
-        modalBackground.strokeColor = UIColor(hex: "#83D6FF").withAlphaComponent(0.5)
-        modalBackground.lineWidth = 1.5
-        modalBackground.zPosition = 0
-        modalContainer.addChild(modalBackground)
+        let buttonHeight: CGFloat = 49
+        let spacingBetweenButtons: CGFloat = 20
+        let topPadding: CGFloat = 20
+        let bottomPadding: CGFloat = 20
+        
+        // Calculate modal height first based on content
+        var contentHeight: CGFloat = 80  // Game Over label
+        if gameOverReason != nil {
+            contentHeight += 50  // reason line
+        }
+        if hasNewHighScore {
+            contentHeight += 70  // high score line
+        }
+        contentHeight += 60  // final score line
+        
+        // Include space for buttons inside modal
+        let spaceForButtons = buttonHeight + spacingBetweenButtons + buttonHeight + bottomPadding
+        let modalHeight = contentHeight + topPadding + spaceForButtons
+        
+        // Calculate starting position to center content in modal
+        let startY = modalHeight/2 - topPadding - 40  // Start 40pt from top (half of 80pt label height)
+        var currentY = startY
         
         // Game Over label
         gameOverLabel = SKLabelNode(fontNamed: "NDAstroneer-Bold")
         gameOverLabel!.text = "GAME OVER"
         gameOverLabel!.fontSize = GameConstants.gameOverFontSize
         gameOverLabel!.fontColor = .white
-        gameOverLabel!.position = CGPoint(x: 0, y: 80)  // Reduced from 100 to match bottom margin
+        gameOverLabel!.horizontalAlignmentMode = .center
+        gameOverLabel!.verticalAlignmentMode = .center
+        gameOverLabel!.position = CGPoint(x: 0, y: currentY)
         gameOverLabel!.zPosition = 1
         modalContainer.addChild(gameOverLabel!)
+        currentY -= 40
         
         // Game over reason label (if applicable)
-        var currentY: CGFloat = 40
         if let reason = gameOverReason {
             let reasonLabel = SKLabelNode(fontNamed: "NDAstroneer-Regular")
             reasonLabel.text = reason
             reasonLabel.fontSize = 20
             reasonLabel.fontColor = UIColor.white.withAlphaComponent(0.6)
+            reasonLabel.horizontalAlignmentMode = .center
+            reasonLabel.verticalAlignmentMode = .center
             reasonLabel.position = CGPoint(x: 0, y: currentY)
             reasonLabel.zPosition = 1
             modalContainer.addChild(reasonLabel)
-            currentY -= 50  // Increased spacing
+            currentY -= 50
         }
         
-        // Final score label
-        finalScoreLabel = SKLabelNode(fontNamed: "NDAstroneer-Bold")
-        finalScoreLabel!.text = "Final Score: \(formatScore(GameManager.shared.currentScore))"
-        finalScoreLabel!.fontSize = GameConstants.finalScoreFontSize
-        finalScoreLabel!.fontColor = .white
-        finalScoreLabel!.position = CGPoint(x: 0, y: currentY)
-        finalScoreLabel!.zPosition = 1
-        modalContainer.addChild(finalScoreLabel!)
-        currentY -= 60  // Increased spacing
-        
-        // High score label (if applicable)
-        if GameManager.shared.currentScore == GameManager.shared.highScore && GameManager.shared.highScore > 0 {
+        // High score label (if applicable) - before Final Score
+        if hasNewHighScore {
             let highScoreLabel = SKLabelNode(fontNamed: "NDAstroneer-Regular")
             highScoreLabel.text = "New High Score!"
             highScoreLabel.fontSize = 28
             highScoreLabel.fontColor = UIColor.white.withAlphaComponent(0.6)
+            highScoreLabel.horizontalAlignmentMode = .center
+            highScoreLabel.verticalAlignmentMode = .center
             highScoreLabel.position = CGPoint(x: 0, y: currentY)
             highScoreLabel.zPosition = 1
             modalContainer.addChild(highScoreLabel)
@@ -2312,18 +2446,55 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             let scaleUp = SKAction.scale(to: 1.1, duration: 0.5)
             let scaleDown = SKAction.scale(to: 1.0, duration: 0.5)
             highScoreLabel.run(SKAction.repeatForever(SKAction.sequence([scaleUp, scaleDown])))
-            currentY -= 70  // Increased spacing
+            currentY -= 70
         }
         
-        // Create restart button
-        let restartButton = MenuButton(text: "RESTART", size: .medium)
-        restartButton.position = CGPoint(x: 0, y: currentY - 20)  // Adjusted to match top margin
+        // Final score label
+        finalScoreLabel = SKLabelNode(fontNamed: "NDAstroneer-Bold")
+        finalScoreLabel!.text = "Final Score: \(formatScore(GameManager.shared.currentScore))"
+        finalScoreLabel!.fontSize = GameConstants.finalScoreFontSize
+        finalScoreLabel!.fontColor = .white
+        finalScoreLabel!.horizontalAlignmentMode = .center
+        finalScoreLabel!.verticalAlignmentMode = .center
+        finalScoreLabel!.position = CGPoint(x: 0, y: currentY)
+        finalScoreLabel!.zPosition = 1
+        modalContainer.addChild(finalScoreLabel!)
+        
+        // Create and add modal background
+        let modalRect = CGRect(x: -modalWidth/2, y: -modalHeight/2, width: modalWidth, height: modalHeight)
+        let modalBackground = SKShapeNode(rect: modalRect, cornerRadius: 8)
+        modalBackground.fillColor = UIColor(hex: "#83D6FF").withAlphaComponent(0.24)
+        modalBackground.strokeColor = UIColor(hex: "#83D6FF").withAlphaComponent(0.5)
+        modalBackground.lineWidth = 1.5
+        modalBackground.zPosition = 0
+        modalContainer.addChild(modalBackground)
+        
+        // Position buttons inside modal at the bottom
+        // RETURN TO MENU button sits at bottom with bottomPadding
+        let returnToMenuButtonY = -modalHeight/2 + bottomPadding + buttonHeight/2
+        
+        // RESTART button is spacingBetweenButtons above RETURN TO MENU button
+        let restartButtonY = returnToMenuButtonY + buttonHeight/2 + spacingBetweenButtons + buttonHeight/2
+        
+        // Reduce button width to account for side padding and border margins
+        let buttonWidth = modalWidth - 40  // Leave 20pt padding on each side
+        
+        let restartButton = MenuButton(text: "RESTART", size: .medium, fixedWidth: buttonWidth)
+        restartButton.position = CGPoint(x: 0, y: restartButtonY)
         restartButton.name = "restartButton"
         restartButton.zPosition = 1
         modalContainer.addChild(restartButton)
-        
-        // Store reference to restart button for touch handling
         self.restartButton = restartButton
+        
+        let returnToMenuButton = MenuButton(text: "RETURN TO MENU", size: .medium, fixedWidth: buttonWidth)
+        returnToMenuButton.position = CGPoint(x: 0, y: returnToMenuButtonY)
+        returnToMenuButton.name = "returnToMenuButton"
+        returnToMenuButton.zPosition = 1
+        modalContainer.addChild(returnToMenuButton)
+        self.returnToMenuButton = returnToMenuButton
+        
+        // Modal already contains buttons, so it's self-contained and centered
+        // modalContainer is already at default position (0, 0) which centers on screen
     }
     
     // MARK: - Pause System
