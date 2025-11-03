@@ -92,6 +92,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     
     private var mergedStarCount: Int = 0
     private var lastMergeTime: TimeInterval = 0
+    private var sessionStartTime: TimeInterval = 0
     
     // Touch tracking for preventing accidental touches
     private var isBlackHoleBeingMoved = false
@@ -124,6 +125,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     override func didMove(to view: SKView) {
         // Preload all textures BEFORE scene setup
         TextureCache.shared.preloadAllTextures()
+        
+        // Track session start time for stats
+        sessionStartTime = CACurrentMediaTime()
         
         setupScene()
         setupCamera()
@@ -1104,6 +1108,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         }
         
         updateScoreLabel()
+        
+        // Track stats - increment star count
+        GameStats.shared.incrementStarCount(type: star.starType)
         
         // Create particle effect at collision point
         createCollisionParticles(at: star.position, color: star.starType.uiColor)
@@ -2341,6 +2348,11 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     
     private func triggerGameOver() {
         isGameOver = true
+        
+        // Update stats
+        let sessionDuration = CACurrentMediaTime() - sessionStartTime
+        GameStats.shared.updatePlayTime(seconds: sessionDuration)
+        GameStats.shared.updateHighScore(score: GameManager.shared.currentScore)
         
         // Stop all danger proximity haptics
         HapticManager.shared.stopAllDangerProximityHaptics()

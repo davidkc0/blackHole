@@ -8,6 +8,7 @@
 import SpriteKit
 import GameplayKit
 import CoreImage
+import UIKit
 
 class MenuScene: SKScene {
     
@@ -27,6 +28,11 @@ class MenuScene: SKScene {
     
     // Animation state
     private var isTransitioning = false
+    private var statsModalOpen = false
+    private var statsModalContainer: SKNode?
+    var statsCloseButton: MenuButton?  // Made internal for ModalScene access
+    private var statsBlurView: UIVisualEffectView?
+    private var statsModalView: SKView?
     
     // MARK: - Scene Lifecycle
     
@@ -52,6 +58,17 @@ class MenuScene: SKScene {
         
         print("🖐 Touch began at: \(location)")
         
+        // Check for modal close button first
+        if statsModalOpen {
+            if let closeButton = statsCloseButton {
+                let buttonLocation = convert(location, to: closeButton.parent!)
+                if closeButton.contains(point: buttonLocation) {
+                    closeButton.animatePress()
+                    return
+                }
+            }
+        }
+        
         // Check each button
         if playButton.contains(point: location) {
             playButton.animatePress()
@@ -76,6 +93,18 @@ class MenuScene: SKScene {
         let location = touch.location(in: self)
         
         print("🖐 Touch ended at: \(location)")
+        
+        // Check for modal close button first
+        if statsModalOpen {
+            if let closeButton = statsCloseButton {
+                let buttonLocation = convert(location, to: closeButton.parent!)
+                if closeButton.contains(point: buttonLocation) {
+                    closeButton.animateRelease()
+                    closeStatsModal()
+                    return
+                }
+            }
+        }
         
         // Check which button was tapped
         if playButton.contains(point: location) {
@@ -303,7 +332,7 @@ class MenuScene: SKScene {
         // Calculate scale to fit within both constraints
         let widthScale = maxWidth / logo.size.width
         let heightScale = maxHeight / logo.size.height
-        let logoScale = min(widthScale, heightScale) * 1.1  // Increase by 10%
+        let logoScale = min(widthScale, heightScale) * 1.21  // 10% larger (1.1 * 1.1)
         
         logo.setScale(logoScale)
         
@@ -394,7 +423,7 @@ class MenuScene: SKScene {
         statsIconButton.position = CGPoint(x: statsX, y: topLeftY)
         statsIconButton.zPosition = 100
         statsIconButton.onTap = { [weak self] in
-            self?.showComingSoon()
+            self?.showStatsModal()
         }
         addChild(statsIconButton)
         
@@ -543,5 +572,240 @@ class MenuScene: SKScene {
         let remove = SKAction.removeFromParent()
         
         message.run(SKAction.sequence([appear, wait, disappear, remove]))
+    }
+    
+    // MARK: - Modal Background Blur
+    
+    /// Creates a reusable blurred background overlay for modals
+    /// Uses Apple's native UIVisualEffectView for efficient blur rendering
+    /// - Returns: A UIVisualEffectView configured with dark blur effect
+    private func createBlurredBackgroundOverlay() -> UIVisualEffectView {
+        // Create blur effect with dark style
+        let blurEffect = UIBlurEffect(style: .dark)
+        
+        // Create visual effect view with the blur effect
+        let blurView = UIVisualEffectView(effect: blurEffect)
+        blurView.frame = view?.bounds ?? CGRect.zero
+        blurView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        
+        return blurView
+    }
+    
+    private func showStatsModal() {
+        guard !statsModalOpen else { return }
+        statsModalOpen = true
+        
+        guard let skView = self.view else { return }
+        
+        // Step 1: Add blur view to blur the main menu UI
+        statsBlurView = createBlurredBackgroundOverlay()
+        if let blurView = statsBlurView {
+            skView.addSubview(blurView)
+        }
+        
+        // Step 2: Create a separate SKView for the modal content above the blur
+        let modalSKView = SKView(frame: skView.bounds)
+        modalSKView.allowsTransparency = true
+        modalSKView.backgroundColor = .clear
+        modalSKView.isUserInteractionEnabled = true  // Need interaction for close button
+        skView.addSubview(modalSKView)
+        statsModalView = modalSKView
+        
+        // Step 3: Create a temporary scene for the modal content
+        let modalScene = ModalScene(size: skView.bounds.size)
+        modalScene.menuScene = self
+        modalScene.backgroundColor = .clear
+        modalScene.scaleMode = .aspectFill
+        modalScene.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+        modalSKView.presentScene(modalScene)
+        
+        // Step 4: Create modal container in the modal scene
+        statsModalContainer = SKNode()
+        statsModalContainer!.name = "statsModal"
+        statsModalContainer!.zPosition = 200
+        modalScene.addChild(statsModalContainer!)
+        
+        // Modal dimensions
+        let modalWidth: CGFloat = 320
+        let topPadding: CGFloat = 30
+        let bottomPadding: CGFloat = 20
+        let rowHeight: CGFloat = 30
+        let rowSpacing: CGFloat = 25
+        
+        // Calculate content height
+        let titleHeight: CGFloat = 40
+        let statsCount = 8  // Total Play Time, High Score, Total Stars, 5 star types
+        let statsHeight = CGFloat(statsCount) * (rowHeight + rowSpacing)
+        let buttonHeight: CGFloat = 49
+        let buttonSpacing: CGFloat = 20
+        
+        let modalHeight = topPadding + titleHeight + statsHeight + buttonSpacing + buttonHeight + bottomPadding
+        
+        // Create modal background
+        let modalRect = CGRect(x: -modalWidth/2, y: -modalHeight/2, width: modalWidth, height: modalHeight)
+        let modalBackground = SKShapeNode(rect: modalRect, cornerRadius: 8)
+        modalBackground.fillColor = UIColor(hex: "#83D6FF").withAlphaComponent(0.24)
+        modalBackground.strokeColor = UIColor(hex: "#83D6FF").withAlphaComponent(0.5)
+        modalBackground.lineWidth = 1.5
+        modalBackground.zPosition = 0
+        statsModalContainer!.addChild(modalBackground)
+        
+        // Title
+        let titleLabel = SKLabelNode(fontNamed: "NDAstroneer-Bold")
+        titleLabel.text = "STATISTICS"
+        titleLabel.fontSize = 32
+        titleLabel.fontColor = .white
+        titleLabel.horizontalAlignmentMode = .center
+        titleLabel.verticalAlignmentMode = .center
+        titleLabel.position = CGPoint(x: 0, y: modalHeight/2 - topPadding - titleHeight/2)
+        titleLabel.zPosition = 1
+        statsModalContainer!.addChild(titleLabel)
+        
+        // Stats list
+        var currentY = modalHeight/2 - topPadding - titleHeight - rowSpacing
+        // Use same padding as button (20pt on each side)
+        let leftPadding: CGFloat = 20
+        let rightPadding: CGFloat = 20
+        let valueWidth: CGFloat = 80
+        
+        // Add each stat row
+        addStatRow(label: "Total Play Time", value: GameStats.shared.formatPlayTime(), y: currentY, modalWidth: modalWidth, valueWidth: valueWidth, leftPadding: leftPadding, rightPadding: rightPadding)
+        currentY -= (rowHeight + rowSpacing)
+        
+        addStatRow(label: "High Score", value: "\(GameStats.shared.highScore)", y: currentY, modalWidth: modalWidth, valueWidth: valueWidth, leftPadding: leftPadding, rightPadding: rightPadding)
+        currentY -= (rowHeight + rowSpacing)
+        
+        addStatRow(label: "Total Stars Absorbed", value: "\(GameStats.shared.totalStarsAbsorbed)", y: currentY, modalWidth: modalWidth, valueWidth: valueWidth, leftPadding: leftPadding, rightPadding: rightPadding)
+        currentY -= (rowHeight + rowSpacing)
+        
+        addStatRow(label: "White Dwarfs", value: "\(GameStats.shared.whiteDwarfsAbsorbed)", y: currentY, modalWidth: modalWidth, valueWidth: valueWidth, leftPadding: leftPadding, rightPadding: rightPadding)
+        currentY -= (rowHeight + rowSpacing)
+        
+        addStatRow(label: "Yellow Dwarfs", value: "\(GameStats.shared.yellowDwarfsAbsorbed)", y: currentY, modalWidth: modalWidth, valueWidth: valueWidth, leftPadding: leftPadding, rightPadding: rightPadding)
+        currentY -= (rowHeight + rowSpacing)
+        
+        addStatRow(label: "Blue Giants", value: "\(GameStats.shared.blueGiantsAbsorbed)", y: currentY, modalWidth: modalWidth, valueWidth: valueWidth, leftPadding: leftPadding, rightPadding: rightPadding)
+        currentY -= (rowHeight + rowSpacing)
+        
+        addStatRow(label: "Orange Giants", value: "\(GameStats.shared.orangeGiantsAbsorbed)", y: currentY, modalWidth: modalWidth, valueWidth: valueWidth, leftPadding: leftPadding, rightPadding: rightPadding)
+        currentY -= (rowHeight + rowSpacing)
+        
+        addStatRow(label: "Red Supergiants", value: "\(GameStats.shared.redSupergiantsAbsorbed)", y: currentY, modalWidth: modalWidth, valueWidth: valueWidth, leftPadding: leftPadding, rightPadding: rightPadding)
+        
+        // Close button
+        let buttonWidth = modalWidth - 40
+        statsCloseButton = MenuButton(text: "CLOSE", size: .medium, fixedWidth: buttonWidth)
+        statsCloseButton!.position = CGPoint(x: 0, y: -modalHeight/2 + bottomPadding + buttonHeight/2)
+        statsCloseButton!.zPosition = 1
+        statsModalContainer!.addChild(statsCloseButton!)
+        
+        // Fade in animation
+        statsModalContainer!.alpha = 0
+        statsModalContainer!.setScale(0.95)
+        let fadeIn = SKAction.fadeIn(withDuration: 0.3)
+        let scaleUp = SKAction.scale(to: 1.0, duration: 0.3)
+        scaleUp.timingMode = .easeOut
+        statsModalContainer!.run(SKAction.group([fadeIn, scaleUp]))
+    }
+    
+    private func addStatRow(label: String, value: String, y: CGFloat, modalWidth: CGFloat, valueWidth: CGFloat, leftPadding: CGFloat, rightPadding: CGFloat) {
+        
+        // Label (left side)
+        let labelNode = SKLabelNode(fontNamed: "NDAstroneer-Regular")
+        labelNode.text = label
+        labelNode.fontSize = 18
+        labelNode.fontColor = UIColor.white.withAlphaComponent(0.7)
+        labelNode.horizontalAlignmentMode = .left
+        labelNode.verticalAlignmentMode = .center
+        labelNode.position = CGPoint(x: -modalWidth/2 + leftPadding, y: y)
+        labelNode.zPosition = 1
+        statsModalContainer!.addChild(labelNode)
+        
+        // Value (right side) with background
+        let valueBgWidth = valueWidth + 12  // extra padding
+        let valueBgRect = CGRect(x: modalWidth/2 - rightPadding - valueBgWidth, y: y - 15, width: valueBgWidth, height: 30)
+        let valueBg = SKShapeNode(rect: valueBgRect, cornerRadius: 4)
+        valueBg.fillColor = UIColor(hex: "#346174")
+        valueBg.strokeColor = .clear
+        valueBg.zPosition = 0
+        statsModalContainer!.addChild(valueBg)
+        
+        let valueNode = SKLabelNode(fontNamed: "NDAstroneer-Regular")
+        valueNode.text = value
+        valueNode.fontSize = 18
+        valueNode.fontColor = .white
+        valueNode.horizontalAlignmentMode = .right
+        valueNode.verticalAlignmentMode = .center
+        valueNode.position = CGPoint(x: modalWidth/2 - rightPadding - 6, y: y)
+        valueNode.zPosition = 1
+        statsModalContainer!.addChild(valueNode)
+    }
+    
+    func closeStatsModal() {  // Made internal for ModalScene access
+        guard statsModalOpen else { return }
+        statsModalOpen = false
+        
+        // Fade out animation for modal
+        let fadeOut = SKAction.fadeOut(withDuration: 0.2)
+        let scaleDown = SKAction.scale(to: 0.95, duration: 0.2)
+        statsModalContainer!.run(SKAction.group([fadeOut, scaleDown])) {
+            self.statsModalContainer?.removeFromParent()
+            self.statsModalContainer = nil
+            self.statsCloseButton = nil
+        }
+        
+        // Fade out and remove modal view
+        if let modalView = statsModalView {
+            UIView.animate(withDuration: 0.2, animations: {
+                modalView.alpha = 0
+            }) { _ in
+                modalView.removeFromSuperview()
+            }
+            statsModalView = nil
+        }
+        
+        // Fade out and remove blur view
+        if let blurView = statsBlurView {
+            UIView.animate(withDuration: 0.2, animations: {
+                blurView.alpha = 0
+            }) { _ in
+                blurView.removeFromSuperview()
+            }
+            statsBlurView = nil
+        }
+    }
+}
+
+// Helper scene class for modal content
+private class ModalScene: SKScene {
+    weak var menuScene: MenuScene?
+    
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard let touch = touches.first, let menuScene = menuScene else { return }
+        let location = touch.location(in: self)
+        
+        // Check for close button in modal scene
+        if let closeButton = menuScene.statsCloseButton {
+            let buttonLocation = convert(location, to: closeButton.parent!)
+            if closeButton.contains(point: buttonLocation) {
+                closeButton.animatePress()
+                return
+            }
+        }
+    }
+    
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard let touch = touches.first, let menuScene = menuScene else { return }
+        let location = touch.location(in: self)
+        
+        // Check for close button in modal scene
+        if let closeButton = menuScene.statsCloseButton {
+            let buttonLocation = convert(location, to: closeButton.parent!)
+            if closeButton.contains(point: buttonLocation) {
+                closeButton.animateRelease()
+                menuScene.closeStatsModal()
+                return
+            }
+        }
     }
 }
