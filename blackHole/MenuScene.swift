@@ -34,6 +34,40 @@ class MenuScene: SKScene {
     private var statsBlurView: UIVisualEffectView?
     private var statsModalView: SKView?
     
+    // Settings modal state
+    private var settingsModalOpen = false
+    private var settingsModalContainer: SKNode?
+    var settingsCloseButton: MenuButton?
+    private var settingsBlurView: UIVisualEffectView?
+    private var settingsModalView: SKView?
+    
+    // Settings controls (made internal for SettingsModalScene access)
+    var soundMuteButton: IconButton?
+    var musicMuteButton: IconButton?
+    var soundVolumeSlider: VolumeSlider?
+    var musicVolumeSlider: VolumeSlider?
+    
+    // Audio settings state
+    private var soundVolume: Float {
+        get { UserDefaults.standard.float(forKey: "soundVolume") == 0 ? 1.0 : UserDefaults.standard.float(forKey: "soundVolume") }
+        set { UserDefaults.standard.set(newValue, forKey: "soundVolume") }
+    }
+    
+    private var musicVolume: Float {
+        get { UserDefaults.standard.float(forKey: "musicVolume") == 0 ? 1.0 : UserDefaults.standard.float(forKey: "musicVolume") }
+        set { UserDefaults.standard.set(newValue, forKey: "musicVolume") }
+    }
+    
+    private var soundMuted: Bool {
+        get { UserDefaults.standard.bool(forKey: "soundMuted") }
+        set { UserDefaults.standard.set(newValue, forKey: "soundMuted") }
+    }
+    
+    private var musicMuted: Bool {
+        get { UserDefaults.standard.bool(forKey: "musicMuted") }
+        set { UserDefaults.standard.set(newValue, forKey: "musicMuted") }
+    }
+    
     // MARK: - Scene Lifecycle
     
     override func didMove(to view: SKView) {
@@ -58,9 +92,19 @@ class MenuScene: SKScene {
         
         print("🖐 Touch began at: \(location)")
         
-        // Check for modal close button first
+        // Check for modal close buttons first
         if statsModalOpen {
             if let closeButton = statsCloseButton {
+                let buttonLocation = convert(location, to: closeButton.parent!)
+                if closeButton.contains(point: buttonLocation) {
+                    closeButton.animatePress()
+                    return
+                }
+            }
+        }
+        
+        if settingsModalOpen {
+            if let closeButton = settingsCloseButton {
                 let buttonLocation = convert(location, to: closeButton.parent!)
                 if closeButton.contains(point: buttonLocation) {
                     closeButton.animatePress()
@@ -94,13 +138,24 @@ class MenuScene: SKScene {
         
         print("🖐 Touch ended at: \(location)")
         
-        // Check for modal close button first
+        // Check for modal close buttons first
         if statsModalOpen {
             if let closeButton = statsCloseButton {
                 let buttonLocation = convert(location, to: closeButton.parent!)
                 if closeButton.contains(point: buttonLocation) {
                     closeButton.animateRelease()
                     closeStatsModal()
+                    return
+                }
+            }
+        }
+        
+        if settingsModalOpen {
+            if let closeButton = settingsCloseButton {
+                let buttonLocation = convert(location, to: closeButton.parent!)
+                if closeButton.contains(point: buttonLocation) {
+                    closeButton.animateRelease()
+                    closeSettingsModal()
                     return
                 }
             }
@@ -413,7 +468,7 @@ class MenuScene: SKScene {
         settingsIconButton.position = CGPoint(x: topLeftX, y: topLeftY)
         settingsIconButton.zPosition = 100
         settingsIconButton.onTap = { [weak self] in
-            self?.showComingSoon()
+            self?.showSettingsModal()
         }
         addChild(settingsIconButton)
         
@@ -627,10 +682,11 @@ class MenuScene: SKScene {
         
         // Modal dimensions
         let modalWidth: CGFloat = 320
-        let topPadding: CGFloat = 30
+        let topPadding: CGFloat = 14  // Distance from modal top to title top
         let bottomPadding: CGFloat = 20
         let rowHeight: CGFloat = 30
-        let rowSpacing: CGFloat = 25
+        let titleBottomSpacing: CGFloat = 43  // 28pt to row top + 15pt to row center (rowHeight=30)
+        let rowSpacing: CGFloat = 25  // Keep for spacing between stat rows
         
         // Calculate content height
         let titleHeight: CGFloat = 40
@@ -639,7 +695,7 @@ class MenuScene: SKScene {
         let buttonHeight: CGFloat = 49
         let buttonSpacing: CGFloat = 20
         
-        let modalHeight = topPadding + titleHeight + statsHeight + buttonSpacing + buttonHeight + bottomPadding
+        let modalHeight = topPadding + titleHeight + titleBottomSpacing + statsHeight + buttonSpacing + buttonHeight + bottomPadding
         
         // Create modal background
         let modalRect = CGRect(x: -modalWidth/2, y: -modalHeight/2, width: modalWidth, height: modalHeight)
@@ -662,7 +718,7 @@ class MenuScene: SKScene {
         statsModalContainer!.addChild(titleLabel)
         
         // Stats list
-        var currentY = modalHeight/2 - topPadding - titleHeight - rowSpacing
+        var currentY = modalHeight/2 - topPadding - titleHeight - titleBottomSpacing
         // Use same padding as button (20pt on each side)
         let leftPadding: CGFloat = 20
         let rightPadding: CGFloat = 20
@@ -772,6 +828,459 @@ class MenuScene: SKScene {
                 blurView.removeFromSuperview()
             }
             statsBlurView = nil
+        }
+    }
+    
+    // MARK: - Settings Modal
+    
+    private func showSettingsModal() {
+        guard !settingsModalOpen else { return }
+        settingsModalOpen = true
+        
+        guard let skView = self.view else { return }
+        
+        // Step 1: Add blur view to blur the main menu UI
+        settingsBlurView = createBlurredBackgroundOverlay()
+        if let blurView = settingsBlurView {
+            skView.addSubview(blurView)
+        }
+        
+        // Step 2: Create a separate SKView for the modal content above the blur
+        let modalSKView = SKView(frame: skView.bounds)
+        modalSKView.allowsTransparency = true
+        modalSKView.backgroundColor = .clear
+        modalSKView.isUserInteractionEnabled = true
+        skView.addSubview(modalSKView)
+        settingsModalView = modalSKView
+        
+        // Step 3: Create a temporary scene for the modal content
+        let modalScene = SettingsModalScene(size: skView.bounds.size)
+        modalScene.menuScene = self
+        modalScene.backgroundColor = .clear
+        modalScene.scaleMode = .aspectFill
+        modalScene.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+        modalSKView.presentScene(modalScene)
+        
+        // Step 4: Create modal container in the modal scene
+        settingsModalContainer = SKNode()
+        settingsModalContainer!.name = "settingsModal"
+        settingsModalContainer!.zPosition = 200
+        modalScene.addChild(settingsModalContainer!)
+        
+        // Modal dimensions
+        let modalWidth: CGFloat = 320
+        let topPadding: CGFloat = 14  // Distance from modal top to title top
+        let bottomPadding: CGFloat = 20
+        let rowHeight: CGFloat = 40
+        let titleBottomSpacing: CGFloat = 48  // 28pt to row top + 20pt to row center (rowHeight=40)
+        let rowSpacing: CGFloat = 25  // Keep for spacing between settings rows
+        
+        // Calculate content height
+        let titleHeight: CGFloat = 40
+        let settingsRowsHeight = 2 * (rowHeight + rowSpacing) // Sound Effects + Music
+        let removeAdsButtonHeight: CGFloat = 49
+        let removeAdsSpacing: CGFloat = 20
+        let closeButtonHeight: CGFloat = 49
+        let buttonSpacing: CGFloat = 20
+        
+        // Calculate modal height so that bottom is 14pt from Close button outer border
+        // Content from top: topPadding + titleHeight + rowSpacing + settingsRowsHeight + removeAdsSpacing
+        // Remove Ads button: removeAdsButtonHeight/2 (only half because we work with center points)
+        // Spacing between buttons: buttonSpacing
+        // Close button: closeButtonHeight
+        // Close button outer border extends 6pt below background
+        // We want 14pt from outer border to modal bottom
+        // So: bottomPadding = 14 + 6 = 20pt (from Close center to modal bottom accounting for outer border)
+        let bottomPaddingFromOuterBorder: CGFloat = 14 + 6  // 14pt visible + 6pt outer border extension
+        
+        let modalHeight = topPadding + titleHeight + titleBottomSpacing + settingsRowsHeight + removeAdsSpacing + removeAdsButtonHeight/2 + buttonSpacing + closeButtonHeight + bottomPaddingFromOuterBorder
+        
+        // Create modal background
+        let modalRect = CGRect(x: -modalWidth/2, y: -modalHeight/2, width: modalWidth, height: modalHeight)
+        let modalBackground = SKShapeNode(rect: modalRect, cornerRadius: 8)
+        modalBackground.fillColor = UIColor(hex: "#83D6FF").withAlphaComponent(0.24)
+        modalBackground.strokeColor = UIColor(hex: "#83D6FF").withAlphaComponent(0.5)
+        modalBackground.lineWidth = 1.5
+        modalBackground.zPosition = 0
+        settingsModalContainer!.addChild(modalBackground)
+        
+        // Title
+        let titleLabel = SKLabelNode(fontNamed: "NDAstroneer-Bold")
+        titleLabel.text = "SETTINGS"
+        titleLabel.fontSize = 32
+        titleLabel.fontColor = .white
+        titleLabel.horizontalAlignmentMode = .center
+        titleLabel.verticalAlignmentMode = .center
+        titleLabel.position = CGPoint(x: 0, y: modalHeight/2 - topPadding - titleHeight/2)
+        titleLabel.zPosition = 1
+        settingsModalContainer!.addChild(titleLabel)
+        
+        // Settings rows
+        var currentY = modalHeight/2 - topPadding - titleHeight - titleBottomSpacing
+        let leftPadding: CGFloat = 20
+        let rightPadding: CGFloat = 20
+        let labelSpacing: CGFloat = 20
+        let sliderWidth: CGFloat = 100
+        
+        // Sound Effects row
+        addSettingsRow(
+            label: "Sound Effects",
+            y: currentY,
+            modalWidth: modalWidth,
+            leftPadding: leftPadding,
+            rightPadding: rightPadding,
+            buttonSpacing: buttonSpacing,
+            labelSpacing: labelSpacing,
+            sliderWidth: sliderWidth,
+            isMusic: false
+        )
+        currentY -= (rowHeight + rowSpacing)
+        
+        // Music row
+        addSettingsRow(
+            label: "Music",
+            y: currentY,
+            modalWidth: modalWidth,
+            leftPadding: leftPadding,
+            rightPadding: rightPadding,
+            buttonSpacing: buttonSpacing,
+            labelSpacing: labelSpacing,
+            sliderWidth: sliderWidth,
+            isMusic: true
+        )
+        currentY -= (rowHeight + rowSpacing + removeAdsSpacing)
+        
+        // Remove Ads button
+        let removeAdsButtonWidth = modalWidth - 40
+        let removeAdsButton = MenuButton(text: "REMOVE ADS", size: .medium, fixedWidth: removeAdsButtonWidth)
+        removeAdsButton.position = CGPoint(x: 0, y: currentY)
+        removeAdsButton.zPosition = 1
+        removeAdsButton.onTap = { [weak self] in
+            // TODO: Implement in-app purchase
+            print("Remove Ads tapped - IAP not yet implemented")
+        }
+        settingsModalContainer!.addChild(removeAdsButton)
+        
+        // Close button - position relative to Remove Ads button to maintain buttonSpacing
+        // Remove Ads button center is at currentY
+        // Remove Ads button background bottom is at: currentY - removeAdsButtonHeight/2
+        // We want buttonSpacing gap between Remove Ads background bottom and Close button background top
+        // Close button background top is at: closeButtonCenterY - closeButtonHeight/2
+        // So: closeButtonCenterY - closeButtonHeight/2 = currentY - removeAdsButtonHeight/2 - buttonSpacing
+        // Therefore: closeButtonCenterY = currentY - removeAdsButtonHeight/2 - buttonSpacing + closeButtonHeight/2
+        // Simplified: closeButtonCenterY = currentY - (removeAdsButtonHeight + buttonSpacing - closeButtonHeight)/2
+        let removeAdsButtonY = currentY  // Save Remove Ads button center Y
+        let closeButtonY = removeAdsButtonY - removeAdsButtonHeight/2 - buttonSpacing - closeButtonHeight/2
+        
+        let buttonWidth = modalWidth - 40
+        settingsCloseButton = MenuButton(text: "CLOSE", size: .medium, fixedWidth: buttonWidth)
+        settingsCloseButton!.position = CGPoint(x: 0, y: closeButtonY)
+        settingsCloseButton!.zPosition = 1
+        settingsModalContainer!.addChild(settingsCloseButton!)
+        
+        // Fade in animation
+        settingsModalContainer!.alpha = 0
+        settingsModalContainer!.setScale(0.95)
+        let fadeIn = SKAction.fadeIn(withDuration: 0.3)
+        let scaleUp = SKAction.scale(to: 1.0, duration: 0.3)
+        scaleUp.timingMode = .easeOut
+        settingsModalContainer!.run(SKAction.group([fadeIn, scaleUp]))
+    }
+    
+    private func addSettingsRow(
+        label: String,
+        y: CGFloat,
+        modalWidth: CGFloat,
+        leftPadding: CGFloat,
+        rightPadding: CGFloat,
+        buttonSpacing: CGFloat,
+        labelSpacing: CGFloat,
+        sliderWidth: CGFloat,
+        isMusic: Bool
+    ) {
+        let buttonX = -modalWidth/2 + leftPadding + 20 // 20pt is half button size
+        let sliderX = modalWidth/2 - rightPadding - sliderWidth/2
+        
+        // Calculate available space for label
+        // Button ends at: buttonX + 20 (half button size)
+        // Slider starts at: sliderX - sliderWidth/2
+        // Gap needed: labelSpacing (20pt) between label end and slider start
+        let buttonEnd = buttonX + 20 + buttonSpacing
+        let sliderStart = sliderX - sliderWidth/2
+        let availableWidth = sliderStart - buttonEnd - labelSpacing
+        let labelX = buttonEnd
+        
+        // Mute button
+        let iconName = isMusic ? (musicMuted ? "music-off" : "music-on") : (soundMuted ? "sound-off" : "sound-on")
+        let muteButton = IconButton(iconName: iconName, size: 40, cornerRadius: 5)
+        muteButton.position = CGPoint(x: buttonX, y: y)
+        muteButton.zPosition = 1
+        
+        // Store reference and set up tap handler
+        if isMusic {
+            musicMuteButton = muteButton
+            muteButton.onTap = { [weak self] in
+                self?.toggleMusicMute()
+            }
+        } else {
+            soundMuteButton = muteButton
+            muteButton.onTap = { [weak self] in
+                self?.toggleSoundMute()
+            }
+        }
+        
+        settingsModalContainer!.addChild(muteButton)
+        
+        // Label - constrained to available width to prevent overlap
+        let labelNode = SKLabelNode(fontNamed: "NDAstroneer-Regular")
+        labelNode.text = label
+        labelNode.fontSize = 18
+        labelNode.fontColor = UIColor.white.withAlphaComponent(0.7)
+        labelNode.horizontalAlignmentMode = .left
+        labelNode.verticalAlignmentMode = .center
+        labelNode.position = CGPoint(x: labelX, y: y)
+        
+        // Constrain label width to prevent overlap with slider
+        // Calculate approximate text width and limit it
+        let maxLabelWidth = max(availableWidth, 80) // Minimum 80pt width, but use available if larger
+        // Note: SKLabelNode doesn't have direct width constraint, but we can clip or scale
+        // For now, we'll rely on the positioning calculation to prevent overlap
+        // If text is too long, it will naturally truncate or we could add a background rect
+        
+        labelNode.zPosition = 1
+        settingsModalContainer!.addChild(labelNode)
+        
+        // Volume slider
+        let sliderFrame = CGRect(x: 0, y: 0, width: sliderWidth, height: 20)
+        let currentVolume = isMusic ? (musicMuted ? 0.0 : musicVolume) : (soundMuted ? 0.0 : soundVolume)
+        let slider = VolumeSlider(frame: sliderFrame, initialValue: currentVolume)
+        slider.position = CGPoint(x: sliderX, y: y)
+        slider.zPosition = 1
+        
+        slider.onValueChanged = { [weak self] newValue in
+            if isMusic {
+                self?.musicMuted = false
+                self?.musicVolume = newValue
+                AudioManager.shared.setMusicVolume(newValue)
+                // Update button icon
+                if let button = self?.musicMuteButton {
+                    let newIcon = newValue > 0 ? "music-on" : "music-off"
+                    button.updateIcon(newIcon)
+                }
+            } else {
+                self?.soundMuted = false
+                self?.soundVolume = newValue
+                AudioManager.shared.setSoundVolume(newValue)
+                // Update button icon
+                if let button = self?.soundMuteButton {
+                    let newIcon = newValue > 0 ? "sound-on" : "sound-off"
+                    button.updateIcon(newIcon)
+                }
+            }
+        }
+        
+        if isMusic {
+            musicVolumeSlider = slider
+        } else {
+            soundVolumeSlider = slider
+        }
+        
+        settingsModalContainer!.addChild(slider)
+    }
+    
+    private func toggleSoundMute() {
+        soundMuted.toggle()
+        
+        if soundMuted {
+            soundVolumeSlider?.updateValue(0.0)
+            AudioManager.shared.setSoundVolume(0.0)
+            soundMuteButton?.updateIcon("sound-off")
+        } else {
+            let volume = soundVolume > 0 ? soundVolume : 1.0
+            soundVolume = volume
+            soundVolumeSlider?.updateValue(volume)
+            AudioManager.shared.setSoundVolume(volume)
+            soundMuteButton?.updateIcon("sound-on")
+        }
+    }
+    
+    private func toggleMusicMute() {
+        musicMuted.toggle()
+        
+        if musicMuted {
+            musicVolumeSlider?.updateValue(0.0)
+            AudioManager.shared.setMusicVolume(0.0)
+            musicMuteButton?.updateIcon("music-off")
+        } else {
+            let volume = musicVolume > 0 ? musicVolume : 1.0
+            musicVolume = volume
+            musicVolumeSlider?.updateValue(volume)
+            AudioManager.shared.setMusicVolume(volume)
+            musicMuteButton?.updateIcon("music-on")
+        }
+    }
+    
+    func closeSettingsModal() {
+        guard settingsModalOpen else { return }
+        settingsModalOpen = false
+        
+        // Fade out animation for modal
+        let fadeOut = SKAction.fadeOut(withDuration: 0.2)
+        let scaleDown = SKAction.scale(to: 0.95, duration: 0.2)
+        settingsModalContainer!.run(SKAction.group([fadeOut, scaleDown])) {
+            self.settingsModalContainer?.removeFromParent()
+            self.settingsModalContainer = nil
+            self.settingsCloseButton = nil
+            self.soundMuteButton = nil
+            self.musicMuteButton = nil
+            self.soundVolumeSlider = nil
+            self.musicVolumeSlider = nil
+        }
+        
+        // Fade out and remove modal view
+        if let modalView = settingsModalView {
+            UIView.animate(withDuration: 0.2, animations: {
+                modalView.alpha = 0
+            }) { _ in
+                modalView.removeFromSuperview()
+            }
+            settingsModalView = nil
+        }
+        
+        // Fade out and remove blur view
+        if let blurView = settingsBlurView {
+            UIView.animate(withDuration: 0.2, animations: {
+                blurView.alpha = 0
+            }) { _ in
+                blurView.removeFromSuperview()
+            }
+            settingsBlurView = nil
+        }
+    }
+}
+
+// Helper scene class for settings modal content
+private class SettingsModalScene: SKScene {
+    weak var menuScene: MenuScene?
+    
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        // Forward touches to child nodes (sliders can handle their own touches)
+        // But we need to handle button animations
+        guard let touch = touches.first, let menuScene = menuScene else { return }
+        let location = touch.location(in: self)
+        
+        // Check sliders first - if they handle the touch, let them
+        if let soundSlider = menuScene.soundVolumeSlider {
+            let sliderLocation = convert(location, to: soundSlider.parent!)
+            let sliderBounds = CGRect(x: soundSlider.position.x - 70, y: soundSlider.position.y - 20, width: 140, height: 40)
+            if sliderBounds.contains(sliderLocation) {
+                soundSlider.touchesBegan(touches, with: event)
+                return
+            }
+        }
+        
+        if let musicSlider = menuScene.musicVolumeSlider {
+            let sliderLocation = convert(location, to: musicSlider.parent!)
+            let sliderBounds = CGRect(x: musicSlider.position.x - 70, y: musicSlider.position.y - 20, width: 140, height: 40)
+            if sliderBounds.contains(sliderLocation) {
+                musicSlider.touchesBegan(touches, with: event)
+                return
+            }
+        }
+        
+        // Check for close button
+        if let closeButton = menuScene.settingsCloseButton {
+            let buttonLocation = convert(location, to: closeButton.parent!)
+            if closeButton.contains(point: buttonLocation) {
+                closeButton.animatePress()
+                return
+            }
+        }
+        
+        // Check for mute buttons
+        if let soundButton = menuScene.soundMuteButton {
+            let buttonLocation = convert(location, to: soundButton.parent!)
+            if soundButton.contains(point: buttonLocation) {
+                soundButton.animatePress()
+                return
+            }
+        }
+        
+        if let musicButton = menuScene.musicMuteButton {
+            let buttonLocation = convert(location, to: musicButton.parent!)
+            if musicButton.contains(point: buttonLocation) {
+                musicButton.animatePress()
+                return
+            }
+        }
+    }
+    
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard let menuScene = menuScene else { return }
+        
+        // Always forward to sliders - they'll check if they're being dragged
+        if let soundSlider = menuScene.soundVolumeSlider {
+            soundSlider.touchesMoved(touches, with: event)
+        }
+        
+        if let musicSlider = menuScene.musicVolumeSlider {
+            musicSlider.touchesMoved(touches, with: event)
+        }
+    }
+    
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard let touch = touches.first, let menuScene = menuScene else { return }
+        let location = touch.location(in: self)
+        
+        // Check for close button
+        if let closeButton = menuScene.settingsCloseButton {
+            let buttonLocation = convert(location, to: closeButton.parent!)
+            if closeButton.contains(point: buttonLocation) {
+                closeButton.animateRelease()
+                menuScene.closeSettingsModal()
+                return
+            }
+        }
+        
+        // Check for mute buttons
+        if let soundButton = menuScene.soundMuteButton {
+            let buttonLocation = convert(location, to: soundButton.parent!)
+            if soundButton.contains(point: buttonLocation) {
+                soundButton.animateRelease()
+                soundButton.onTap?()
+                return
+            }
+        }
+        
+        if let musicButton = menuScene.musicMuteButton {
+            let buttonLocation = convert(location, to: musicButton.parent!)
+            if musicButton.contains(point: buttonLocation) {
+                musicButton.animateRelease()
+                musicButton.onTap?()
+                return
+            }
+        }
+        
+        // Forward to sliders
+        if let soundSlider = menuScene.soundVolumeSlider {
+            soundSlider.touchesEnded(touches, with: event)
+        }
+        
+        if let musicSlider = menuScene.musicVolumeSlider {
+            musicSlider.touchesEnded(touches, with: event)
+        }
+    }
+    
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard let menuScene = menuScene else { return }
+        
+        // Forward to sliders
+        if let soundSlider = menuScene.soundVolumeSlider {
+            soundSlider.touchesCancelled(touches, with: event)
+        }
+        
+        if let musicSlider = menuScene.musicVolumeSlider {
+            musicSlider.touchesCancelled(touches, with: event)
         }
     }
 }

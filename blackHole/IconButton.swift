@@ -79,4 +79,10 @@ class IconButton: SKNode {
         let scaleUp = SKAction.scale(to: 1.0, duration: 0.1)
         run(scaleUp)
     }
+    
+    func updateIcon(_ iconName: String) {
+        let iconTexture = SKTexture(imageNamed: iconName)
+        iconTexture.filteringMode = .nearest
+        icon.texture = iconTexture
+    }
 }
