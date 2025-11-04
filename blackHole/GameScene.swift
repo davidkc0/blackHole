@@ -2370,8 +2370,32 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         // Play sound
         AudioManager.shared.playGameOverSound()
         
-        // Show game over UI
-        showGameOverUI()
+        // Increment game over counter
+        GameManager.shared.incrementGameOverCount()
+        
+                // Check if we should show an ad
+        if GameManager.shared.shouldShowAd() {
+            if let viewController = self.view?.window?.rootViewController {
+                let adWasShown = AdManager.shared.showInterstitial(from: viewController) { [weak self] in
+                    // Ad was shown and dismissed - reset counter and show UI
+                    GameManager.shared.resetAdCounter()
+                    self?.showGameOverUI()
+                }
+                
+                if !adWasShown {
+                    // Ad wasn't ready - show UI immediately but DON'T reset counter
+                    // This allows the counter to accumulate so ad will show next time
+                    print("📺 Ad not ready, will try again next game (counter: \(GameManager.shared.gamesPlayedSinceLastAd))")
+                    showGameOverUI()
+                }
+            } else {
+                // If we can't get the view controller, just show game over UI
+                showGameOverUI()
+            }
+        } else {
+            // Not time to show ad yet, just show game over UI
+            showGameOverUI()
+        }
     }
     
     private func showGameOverUI() {

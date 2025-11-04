@@ -74,11 +74,14 @@ class MenuScene: SKScene {
         // CENTER THE COORDINATE SYSTEM - THIS IS CRITICAL!
         anchorPoint = CGPoint(x: 0.5, y: 0.5)
         
-        setupBackground()
+                setupBackground()
         setupStaticStars()
         setupMenuUI()
         addRetroEffects()
         startAmbientAnimations()
+        
+        // Initialize AdManager immediately - it handles SDK ready state internally
+        _ = AdManager.shared
         
         // Play menu music
         AudioManager.shared.playBackgroundMusic()

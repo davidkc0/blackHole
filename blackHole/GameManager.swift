@@ -13,6 +13,10 @@ class GameManager {
     private(set) var currentScore: Int = 0
     private(set) var highScore: Int = 0
     
+    // Ad counter properties
+    private(set) var gamesPlayedSinceLastAd: Int = 0
+    private let showAdEveryNGames: Int = 1  // Changed from 3 to 1 for testing - TODO: Change back to 3 for production
+    
     private let highScoreKey = "blackHole_highScore"
     
     private init() {
@@ -29,6 +33,19 @@ class GameManager {
     
     func resetScore() {
         currentScore = 0
+    }
+    
+    func incrementGameOverCount() {
+        gamesPlayedSinceLastAd += 1
+    }
+    
+    func shouldShowAd() -> Bool {
+        // Show ad every 3rd game (or 2nd, change showAdEveryNGames to 2)
+        return gamesPlayedSinceLastAd >= showAdEveryNGames
+    }
+    
+    func resetAdCounter() {
+        gamesPlayedSinceLastAd = 0
     }
     
     func getScoreMultiplier(blackHoleDiameter: CGFloat) -> Int {
