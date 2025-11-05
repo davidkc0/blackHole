@@ -13,17 +13,46 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     var window: UIWindow?
 
-        func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {               
-        // Initialize Google Mobile Ads SDK on background thread to avoid blocking app launch
-        DispatchQueue.global(qos: .userInitiated).async {
+    func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {                                                                                           
+        print("🚀 App launching - staged initialization...")
+        
+        // 1) Initialize AdMob SDK early (Google's recommendation) but on background thread
+        // This lets WebKit processes launch early and settle before menu is used
+        DispatchQueue.global(qos: .utility).async {
+            print("📱 Initializing AdMob SDK on background thread (early, non-blocking)...")
             MobileAds.shared.start(completionHandler: { initializationStatus in
-                print("✅ AdMob SDK initialized on background thread")
-                
-                // Post notification on main thread
+                print("✅ AdMob SDK initialized")
                 DispatchQueue.main.async {
                     NotificationCenter.default.post(name: NSNotification.Name("AdMobSDKInitialized"), object: nil)
                 }
             })
+        }
+        
+        // Timeout after 10 seconds (in case SDK initialization hangs)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10.0) {
+            NotificationCenter.default.post(
+                name: NSNotification.Name("AdMobSDKInitialized"),
+                object: nil
+            )
+        }
+        
+        // 2) ✅ Only preload menu visuals up front
+        DispatchQueue.global(qos: .userInitiated).async {
+            print("🎨 Preloading menu textures...")
+            RetroAestheticManager.shared.preloadMenuTextures()
+            DispatchQueue.main.async {
+                // Optional: tell the menu minimal textures are warmed
+                NotificationCenter.default.post(name: NSNotification.Name("MenuBootstrapReady"), object: nil)
+            }
+        }
+        
+        // 3) ✅ Defer game textures until after first frame of the menu
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 2.0) {
+            print("🎨 Streaming game textures in background...")
+            TextureCache.shared.preloadAllTextures()
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: NSNotification.Name("TexturesPreloaded"), object: nil)
+            }
         }
         
         return true

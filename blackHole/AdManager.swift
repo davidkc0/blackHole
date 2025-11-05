@@ -14,15 +14,18 @@ class AdManager: NSObject {
     
     private var interstitialAd: InterstitialAd?
     private var isLoading = false
-    private var hasReceivedSDKReadyNotification = false
+    private var sdkInitialized = false
+    private var loadTimeoutFired = false  // Track if timeout occurred
     
     // REPLACE WITH YOUR REAL AD UNIT ID BEFORE PRODUCTION
     private let adUnitID = "ca-app-pub-3940256099942544/4411468910"  // Test ID
     
-        private override init() {
+    private override init() {
         super.init()
         
-        // Listen for AdMob SDK initialization
+        print("📱 AdManager initialized")
+        
+        // Listen for SDK initialization
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(handleAdMobSDKInitialized),
@@ -32,67 +35,170 @@ class AdManager: NSObject {
     }
     
     @objc private func handleAdMobSDKInitialized() {
-        print("📢 AdMob SDK initialization notification received")
-        hasReceivedSDKReadyNotification = true
-        loadInterstitial()
+        print("✅ AdMob SDK ready")
+        sdkInitialized = true
+        // DON'T load ad here - wait until game over
     }
     
     deinit {
         NotificationCenter.default.removeObserver(self)
     }
     
-        /// Load an interstitial ad
-    func loadInterstitial() {
-        guard !isLoading else {
-            print("🔄 Ad already loading, skipping")
+    /// Load an interstitial ad
+    /// Called AFTER game over, not during gameplay
+    private func loadInterstitial(completion: @escaping (Bool) -> Void) {
+        guard sdkInitialized else {
+            print("⚠️ SDK not initialized")
+            completion(false)
             return
         }
         
-        // Don't load if we already have an ad ready
+        guard !isLoading else {
+            print("ℹ️ Already loading")
+            completion(false)
+            return
+        }
+        
         if interstitialAd != nil {
-            print("✅ Ad already loaded, skipping")
+            print("✅ Ad already loaded")
+            completion(true)
             return
         }
         
         isLoading = true
-        print("🔄 Starting to load interstitial ad...")
+        loadTimeoutFired = false
+        print("📱 Loading ad NOW (game over)...")
         
+        // Prepare request on current thread (can be background)
         let request = Request()
         
-        InterstitialAd.load(with: adUnitID, request: request) { [weak self] ad, error in                                                                        
-            self?.isLoading = false
-            
-            if let error = error {
-                print("❌ Failed to load interstitial ad: \(error.localizedDescription)")                                                                       
-                return
+        // Timeout after 3 seconds (game over screen visible, user can wait a bit)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
+            guard let self = self else { return }
+            if self.isLoading && !self.loadTimeoutFired {
+                self.loadTimeoutFired = true
+                print("⏱️ Ad load timeout")
+                self.isLoading = false
+                completion(false)
             }
+        }
+        
+        // AdMob requires InterstitialAd.load() to be called on main thread
+        // But we dispatch it asynchronously so it doesn't block current main thread work
+        // This allows WebKit initialization to happen without blocking the UI
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
             
-            self?.interstitialAd = ad
-            self?.interstitialAd?.fullScreenContentDelegate = self
-            print("✅ Interstitial ad loaded successfully")
+            InterstitialAd.load(with: self.adUnitID, request: request) { [weak self] ad, error in
+                guard let self = self else { return }
+                
+                // Prevent completion if timeout already fired
+                if self.loadTimeoutFired {
+                    return
+                }
+                
+                self.isLoading = false
+                
+                if let error = error {
+                    print("⚠️ Ad failed: \(error.localizedDescription)")
+                    completion(false)
+                    return
+                }
+                
+                guard let ad = ad else {
+                    print("⚠️ Ad returned nil")
+                    completion(false)
+                    return
+                }
+                
+                self.interstitialAd = ad
+                self.interstitialAd?.fullScreenContentDelegate = self
+                print("✅ Ad loaded")
+                completion(true)
+            }
         }
     }
     
-        /// Show the interstitial ad if available
-    /// Returns true if ad was shown, false if ad wasn't ready
-    func showInterstitial(from viewController: UIViewController, completion: @escaping () -> Void) -> Bool {
-        guard let interstitialAd = interstitialAd else {
-            print("⚠️ Ad wasn't ready, skipping ad display")
-            // Don't call completion - let the caller handle showing UI immediately
-            return false
+    /// Show ad with loading
+    /// Call this at game over
+    /// - Shows loading for up to 3 seconds
+    /// - If ad loads: shows ad
+    /// - If ad doesn't load: calls completion immediately
+    func showInterstitialWithLoading(
+        from viewController: UIViewController,
+        onAdDismissed: @escaping () -> Void,
+        onNoAd: @escaping () -> Void
+    ) {
+        print("🎬 Game over - loading ad...")
+        
+        // If ad already loaded, show it immediately
+        // Ensure we're on main thread for UI operations
+        if let ad = interstitialAd {
+            print("✅ Ad ready, showing now")
+            self.adDismissalCompletion = onAdDismissed
+            // Ensure presentation happens on main thread
+            if Thread.isMainThread {
+                ad.present(from: viewController)
+            } else {
+                DispatchQueue.main.async {
+                    ad.present(from: viewController)
+                }
+            }
+            return
         }
         
-        print("📺 Showing interstitial ad")
-        interstitialAd.present(from: viewController)
-        
-        // Store completion for when ad dismisses
-        self.adDismissalCompletion = completion
-        return true
+        // Load ad (with 3 second timeout)
+        // Completion may be called from background thread, so dispatch UI updates to main
+        loadInterstitial { [weak self] success in
+            guard let self = self else { return }
+            
+            DispatchQueue.main.async {
+                if success, let ad = self.interstitialAd {
+                    print("✅ Ad loaded, showing now")
+                    self.adDismissalCompletion = onAdDismissed
+                    ad.present(from: viewController)  // Must be on main thread
+                } else {
+                    print("ℹ️ No ad available")
+                    onNoAd()  // UI callback, ensure on main thread
+                }
+            }
+        }
     }
     
-    /// Check if ad is ready to show
+    /// Check if ad is ready
     func isAdReady() -> Bool {
         return interstitialAd != nil
+    }
+    
+    /// Called by the Loading Screen *after* the SDK is confirmed ready.
+    /// This is the new "first load" trigger.
+    func preloadFirstAd(completion: @escaping (Bool) -> Void) {
+        guard sdkInitialized else {
+            print("⚠️ AdManager: preloadFirstAd called but SDK not ready.")
+            completion(false) // Fire completion immediately
+            return
+        }
+        
+        guard interstitialAd == nil, !isLoading else {
+            print("ℹ️ AdManager: preloadFirstAd called but ad is already loaded or loading.")
+            completion(false) // Fire completion immediately
+            return
+        }
+        
+        print("📱 AdManager: Pre-loading first ad (triggered by LoadingScene)...")
+        
+        // Pass the completion handler from LoadingScene
+        // straight to the internal loadInterstitial function.
+        loadInterstitial { success in
+            if success {
+                print("✅ First ad pre-loaded and ready.")
+            } else {
+                print("⚠️ Pre-load of first ad failed.")
+            }
+            // This is the crucial link:
+            // We call the completion handler to tell LoadingScene it's done.
+            completion(success)
+        }
     }
     
     // Store completion handler
@@ -102,31 +208,31 @@ class AdManager: NSObject {
 // MARK: - FullScreenContentDelegate
 extension AdManager: FullScreenContentDelegate {
     
-    /// Called when the ad is dismissed
     func adDidDismissFullScreenContent(_ ad: FullScreenPresentingAd) {
         print("✅ Ad dismissed")
         
-        // Clear the ad and load a new one for next time
+        // Clear ad
         interstitialAd = nil
-        loadInterstitial()
         
-        // Execute completion (restart game)
+        // Execute completion
         adDismissalCompletion?()
         adDismissalCompletion = nil
+        
+        // PRE-LOAD THE NEXT AD!
+        print("📱 Ad dismissed. Pre-loading next ad...")
+        loadInterstitial { success in
+            print(success ? "✅ Next ad pre-loaded." : "⚠️ Next ad pre-load failed.")
+        }
     }
     
-    /// Called when ad fails to present
     func ad(_ ad: FullScreenPresentingAd, didFailToPresentFullScreenContentWithError error: Error) {
-        print("❌ Ad failed to present: \(error.localizedDescription)")
+        print("⚠️ Ad failed to present: \(error.localizedDescription)")
         
-        // Clear failed ad and load new one
+        // Clear failed ad
         interstitialAd = nil
-        loadInterstitial()
         
-        // Execute completion anyway (restart game)
+        // Execute completion anyway
         adDismissalCompletion?()
         adDismissalCompletion = nil
     }
 }
-
-

@@ -44,6 +44,7 @@ class TextureCache {
     private var coreTextures: [String: SKTexture] = [:]
     private var glowTextures: [String: SKTexture] = [:]
     private var particleTextures: [String: SKTexture] = [:]
+    private var hasPreloaded = false  // Prevent duplicate preloading
     
     private init() {}
     
@@ -88,7 +89,14 @@ class TextureCache {
     }
     
     func preloadAllTextures() {
+        // ✅ Prevent duplicate preloading - only run once
+        guard !hasPreloaded else {
+            print("⏭️ Textures already preloaded, skipping")
+            return
+        }
+        
         let startTime = CACurrentMediaTime()
+        hasPreloaded = true
         
         // Preload core and glow textures for all type/size combinations
         for type in StarType.allCases {

@@ -77,6 +77,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     
     private var isGameOver = false
     private var gameOverReason: String?
+    private var hasShownGameOverUI = false  // Track if game over UI has been displayed
     
     // Pause system
     private var isGamePaused = false
@@ -123,8 +124,10 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     // MARK: - Scene Lifecycle
     
     override func didMove(to view: SKView) {
-        // Preload all textures BEFORE scene setup
-        TextureCache.shared.preloadAllTextures()
+        // ❌ REMOVED: TextureCache.shared.preloadAllTextures()
+        // Textures are already being preloaded in background from AppDelegate
+        // This was causing 38-second freeze when starting game!
+        // Textures will load on-demand if not ready yet (SpriteKit handles this gracefully)
         
         // Track session start time for stats
         sessionStartTime = CACurrentMediaTime()
@@ -2370,28 +2373,26 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         // Play sound
         AudioManager.shared.playGameOverSound()
         
-        // Increment game over counter
+                // Increment game over counter
         GameManager.shared.incrementGameOverCount()
         
-                // Check if we should show an ad
+        // Check if we should show an ad
         if GameManager.shared.shouldShowAd() {
-            if let viewController = self.view?.window?.rootViewController {
-                let adWasShown = AdManager.shared.showInterstitial(from: viewController) { [weak self] in
-                    // Ad was shown and dismissed - reset counter and show UI
+            guard let viewController = self.view?.window?.rootViewController else {
+                showGameOverUI()
+                return
+            }
+            
+            AdManager.shared.showInterstitialWithLoading(
+                from: viewController,
+                onAdDismissed: { [weak self] in
                     GameManager.shared.resetAdCounter()
                     self?.showGameOverUI()
+                },
+                onNoAd: { [weak self] in
+                    self?.showGameOverUI()
                 }
-                
-                if !adWasShown {
-                    // Ad wasn't ready - show UI immediately but DON'T reset counter
-                    // This allows the counter to accumulate so ad will show next time
-                    print("📺 Ad not ready, will try again next game (counter: \(GameManager.shared.gamesPlayedSinceLastAd))")
-                    showGameOverUI()
-                }
-            } else {
-                // If we can't get the view controller, just show game over UI
-                showGameOverUI()
-            }
+            )
         } else {
             // Not time to show ad yet, just show game over UI
             showGameOverUI()
@@ -2399,6 +2400,13 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     }
     
     private func showGameOverUI() {
+        // Prevent showing game over UI twice (e.g., if ad was delayed)
+        guard !hasShownGameOverUI else {
+            print("⚠️ Game over UI already shown, skipping")
+            return
+        }
+        hasShownGameOverUI = true
+        
         // Create modal container
         let modalContainer = SKNode()
         modalContainer.name = "gameOverModal"

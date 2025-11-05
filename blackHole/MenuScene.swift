@@ -17,7 +17,6 @@ class MenuScene: SKScene {
     // Background elements (reused from game)
     private var backgroundLayers: [[SKSpriteNode]] = [[], [], []]
     private var decorativeStars: [Star] = []
-    private var nebulaNode: SKSpriteNode?
     
     // UI Elements
     private var playButton: MenuButton!
@@ -74,14 +73,36 @@ class MenuScene: SKScene {
         // CENTER THE COORDINATE SYSTEM - THIS IS CRITICAL!
         anchorPoint = CGPoint(x: 0.5, y: 0.5)
         
-                setupBackground()
-        setupStaticStars()
+        // ✅ Only setup essential UI immediately - buttons must be tappable
+        backgroundColor = UIColor(white: 0.02, alpha: 1.0)
         setupMenuUI()
-        addRetroEffects()
-        startAmbientAnimations()
         
-        // Initialize AdManager immediately - it handles SDK ready state internally
-        _ = AdManager.shared
+        // ✅ Defer ALL node creation after first frame
+        run(SKAction.wait(forDuration: 0.016)) { [weak self] in
+            guard let self = self else { return }
+            // Now safe to create nodes - menu is already visible and responsive                                                                                
+            self.setupBackground()  // 25 background stars (deferred)                                                                                           
+            self.setupStaticStars()  // 8 decorative stars
+            self.startAmbientAnimations()
+            
+            // Add retro effects synchronously (textures are already preloaded)
+            self.addRetroEffects()
+            
+            // Wait a bit longer to ensure all animations have started and scene is fully interactive
+            // This ensures stars are twinkling, ambient animations are running, and buttons are responsive
+            self.run(SKAction.wait(forDuration: 0.1)) { [weak self] in
+                guard let self = self else { return }
+                // ✅ POST READY ONLY AFTER ALL WORK IS DONE, ANIMATIONS STARTED, AND SCENE IS INTERACTIVE!
+                print("✅ MenuScene fully initialized, dismissing loading screen")
+                NotificationCenter.default.post(
+                    name: NSNotification.Name("MenuSceneReady"),
+                    object: nil
+                )
+            }
+        }
+        
+        // ❌ Avoid touching AdManager here; we'll load later when game starts                                                                               
+        // _ = AdManager.shared  // remove
         
         // Play menu music
         AudioManager.shared.playBackgroundMusic()
@@ -191,134 +212,129 @@ class MenuScene: SKScene {
     // MARK: - Background Setup (Reuse from GameScene)
     
     private func setupBackground() {
-        backgroundColor = UIColor(white: 0.02, alpha: 1.0)  // Match game
-        
-        // Add nebula (copy from GameScene)
-        setupNebula()
-        
-        // Add parallax star layers (but static)
+        // Background color is already set in didMove()
+        // Nebula removed - just add background starfield
+        // Add background starfield (25 stars in visible area only)
         createStaticStarfield()
     }
     
-    private func setupNebula() {
-        let nebulaTexture = createNebulaTexture()
-        nebulaNode = SKSpriteNode(texture: nebulaTexture)
-        nebulaNode?.size = CGSize(width: 3000, height: 3000)
-        nebulaNode?.position = CGPoint.zero
-        nebulaNode?.zPosition = -50
-        nebulaNode?.alpha = 0.35
-        nebulaNode?.blendMode = .alpha
-        nebulaNode?.isUserInteractionEnabled = false  // Don't block touches
-        addChild(nebulaNode!)
-        
-        // Slow rotation for subtle movement
-        let rotate = SKAction.rotate(byAngle: .pi * 2, duration: 300)
-        nebulaNode?.run(SKAction.repeatForever(rotate))
-    }
-    
-    private func createNebulaTexture() -> SKTexture {
-        // Copy exact method from GameScene
-        let size = CGSize(width: 512, height: 512)
-        let renderer = UIGraphicsImageRenderer(size: size)
-        
-        let image = renderer.image { context in
-            let cgContext = context.cgContext
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
-            let colors = [
-                UIColor(red: 0.1, green: 0.04, blue: 0.18, alpha: 1.0).cgColor,
-                UIColor(red: 0.08, green: 0.05, blue: 0.15, alpha: 0.8).cgColor,
-                UIColor(red: 0.06, green: 0.06, blue: 0.12, alpha: 0.4).cgColor,
-                UIColor(red: 0.04, green: 0.04, blue: 0.08, alpha: 0.0).cgColor
-            ] as CFArray
-            
-            let locations: [CGFloat] = [0.0, 0.3, 0.6, 1.0]
-            
-            guard let gradient = CGGradient(colorsSpace: colorSpace, colors: colors, locations: locations) else {
-                return
-            }
-            
-            let center = CGPoint(x: size.width / 2, y: size.height / 2)
-            let radius = size.width / 2
-            
-            cgContext.drawRadialGradient(
-                gradient,
-                startCenter: center,
-                startRadius: 0,
-                endCenter: center,
-                endRadius: radius,
-                options: [.drawsBeforeStartLocation, .drawsAfterEndLocation]
-            )
-        }
-        
-        return SKTexture(image: image)
-    }
-    
     private func createStaticStarfield() {
-        // Layer 0: Distant stars
-        createStarLayer(
-            count: 200,
-            sizeRange: 0.8...1.5,
-            alphaRange: 0.3...0.5,
-            zPosition: -30,
-            twinkle: true
-        )
+        // ✅ Create 25 background stars synchronously - not enough to cause freeze
+        // This ensures they're all created before MenuSceneReady is posted
+        let count = 25
+        let sizeRange: ClosedRange<CGFloat> = 1.0...2.5
+        let alphaRange: ClosedRange<CGFloat> = 0.4...0.7
+        let zPosition: CGFloat = -25
         
-        // Layer 1: Mid-distance stars
-        createStarLayer(
-            count: 100,
-            sizeRange: 1.5...2.5,
-            alphaRange: 0.5...0.7,
-            zPosition: -20,
-            twinkle: true
-        )
-        
-        // Layer 2: Near stars
-        createStarLayer(
-            count: 50,
-            sizeRange: 2.5...3.0,
-            alphaRange: 0.7...0.9,
-            zPosition: -10,
-            twinkle: false
-        )
-    }
-    
-    private func createStarLayer(count: Int, sizeRange: ClosedRange<CGFloat>,
-                                 alphaRange: ClosedRange<CGFloat>, zPosition: CGFloat,
-                                 twinkle: Bool) {
         let screenSize = UIScreen.main.bounds.size
-        let spread = max(screenSize.width, screenSize.height) * 0.6  // Scale to screen size
+        let visibleWidth = screenSize.width * 0.5
+        let visibleHeight = screenSize.height * 0.5
         
         for _ in 0..<count {
             let starSize = CGFloat.random(in: sizeRange)
-            let star = SKSpriteNode(color: .white, size: CGSize(width: starSize, height: starSize))
-            
-            star.position = CGPoint(
-                x: CGFloat.random(in: -spread...spread),
-                y: CGFloat.random(in: -spread...spread)
+            let position = CGPoint(
+                x: CGFloat.random(in: -visibleWidth...visibleWidth),
+                y: CGFloat.random(in: -visibleHeight...visibleHeight)
             )
+            let alpha = CGFloat.random(in: alphaRange)
             
-            star.alpha = CGFloat.random(in: alphaRange)
+            let star = SKSpriteNode(color: .white, size: CGSize(width: starSize, height: starSize))
+            star.position = position
+            star.alpha = alpha
             star.zPosition = zPosition
-            star.isUserInteractionEnabled = false  // Don't block touches
+            star.isUserInteractionEnabled = false
             addChild(star)
             
-            if twinkle {
-                let twinkleDuration = Double.random(in: 2...5)
-                let fadeOut = SKAction.fadeAlpha(to: alphaRange.lowerBound, duration: twinkleDuration)
-                let fadeIn = SKAction.fadeAlpha(to: star.alpha, duration: twinkleDuration)
-                let delay = SKAction.wait(forDuration: Double.random(in: 0...2))
-                star.run(SKAction.sequence([delay, SKAction.repeatForever(SKAction.sequence([fadeOut, fadeIn]))]))
-            }
+            // Start twinkle animation immediately
+            let twinkleDuration = Double.random(in: 2...5)
+            let fadeOut = SKAction.fadeAlpha(to: alphaRange.lowerBound, duration: twinkleDuration)
+            let fadeIn = SKAction.fadeAlpha(to: alpha, duration: twinkleDuration)
+            let delay = SKAction.wait(forDuration: Double.random(in: 0...2))
+            star.run(SKAction.sequence([delay, SKAction.repeatForever(SKAction.sequence([fadeOut, fadeIn]))]))
         }
     }
     
-    // MARK: - Static Game Stars
-    
-    private func setupStaticStars() {
-        // Create 8 decorative game stars at fixed positions (scaled to screen)
+    private func createStarLayerBatched(count: Int, sizeRange: ClosedRange<CGFloat>,
+                                       alphaRange: ClosedRange<CGFloat>, zPosition: CGFloat,
+                                       twinkle: Bool, startDelay: TimeInterval, batchSize: Int) {
         let screenSize = UIScreen.main.bounds.size
-        let scale = min(screenSize.width, screenSize.height) / 400.0  // Scale factor for phone screens
         
+        // ✅ FIX: Only spread stars across VISIBLE menu area
+        // Since anchorPoint is (0.5, 0.5), visible area is:
+        let visibleWidth = screenSize.width * 0.5   // -width/2 to +width/2
+        let visibleHeight = screenSize.height * 0.5  // -height/2 to +height/2
+        let spreadX = visibleWidth
+        let spreadY = visibleHeight
+        
+        // Pre-generate all star properties to avoid blocking during animation                                                                              
+        var starProperties: [(size: CGFloat, position: CGPoint, alpha: CGFloat)] = []                                                                       
+        for _ in 0..<count {
+            let starSize = CGFloat.random(in: sizeRange)
+            // ✅ Use visible area bounds only
+            let position = CGPoint(
+                x: CGFloat.random(in: -spreadX...spreadX),
+                y: CGFloat.random(in: -spreadY...spreadY)
+            )
+            let alpha = CGFloat.random(in: alphaRange)
+            starProperties.append((size: starSize, position: position, alpha: alpha))
+        }
+        
+        // Create stars in batches across multiple frames
+        var batchIndex = 0
+        let totalBatches = (count + batchSize - 1) / batchSize
+        
+        func createBatch() {
+            let startIndex = batchIndex * batchSize
+            let endIndex = min(startIndex + batchSize, count)
+            
+            for i in startIndex..<endIndex {
+                let props = starProperties[i]
+                let star = SKSpriteNode(color: .white, size: CGSize(width: props.size, height: props.size))
+                
+                star.position = props.position
+                star.alpha = props.alpha
+                star.zPosition = zPosition
+                star.isUserInteractionEnabled = false  // Don't block touches
+                addChild(star)
+                
+                if twinkle {
+                    let twinkleDuration = Double.random(in: 2...5)
+                    let fadeOut = SKAction.fadeAlpha(to: alphaRange.lowerBound, duration: twinkleDuration)
+                    let fadeIn = SKAction.fadeAlpha(to: props.alpha, duration: twinkleDuration)
+                    let delay = SKAction.wait(forDuration: Double.random(in: 0...2))
+                    star.run(SKAction.sequence([delay, SKAction.repeatForever(SKAction.sequence([fadeOut, fadeIn]))]))
+                }
+            }
+            
+            batchIndex += 1
+            
+            // Schedule next batch if there are more to create
+            if batchIndex < totalBatches {
+                run(SKAction.sequence([
+                    SKAction.wait(forDuration: 0.016), // ~1 frame at 60fps
+                    SKAction.run(createBatch)
+                ]))
+            }
+        }
+        
+        // Start creating batches after initial delay
+        if startDelay > 0 {
+            run(SKAction.sequence([
+                SKAction.wait(forDuration: startDelay),
+                SKAction.run(createBatch)
+            ]))
+        } else {
+            createBatch()
+        }
+    }
+    
+    // MARK: - Static Game Stars (Synchronous creation - only 8 stars)
+
+    private func setupStaticStars() {
+        // Create all 8 decorative stars synchronously - not enough to cause freeze
+        let screenSize = UIScreen.main.bounds.size
+        let scale = min(screenSize.width, screenSize.height) / 400.0
+
         let starConfigurations: [(StarType, CGPoint, CGFloat)] = [
             (.whiteDwarf, CGPoint(x: -200 * scale, y: 300 * scale), 22 * scale),
             (.yellowDwarf, CGPoint(x: 150 * scale, y: 250 * scale), 35 * scale),
@@ -329,32 +345,38 @@ class MenuScene: SKScene {
             (.yellowDwarf, CGPoint(x: -250 * scale, y: -250 * scale), 38 * scale),
             (.blueGiant, CGPoint(x: 0, y: 400 * scale), 70 * scale)
         ]
-        
+
+                // Create all stars immediately - ensures they exist before MenuSceneReady
         for (type, position, size) in starConfigurations {
-            let star = Star(type: type)
-            star.size = CGSize(width: size, height: size)
-            star.position = position
-            star.zPosition = 5
-            
-            // Disable physics for static display
-            star.physicsBody = nil
-            
-            // CRITICAL: Don't block button touches!
-            star.isUserInteractionEnabled = false
-            
-            addChild(star)
-            decorativeStars.append(star)
-            
-            // Gentle floating animation
-            let floatUp = SKAction.moveBy(x: 0, y: 10, duration: Double.random(in: 3...5))
-            let floatDown = SKAction.moveBy(x: 0, y: -10, duration: Double.random(in: 3...5))
-            floatUp.timingMode = .easeInEaseOut
-            floatDown.timingMode = .easeInEaseOut
-            
-            let floatSequence = SKAction.sequence([floatUp, floatDown])
-            let delay = SKAction.wait(forDuration: Double.random(in: 0...2))
-            star.run(SKAction.sequence([delay, SKAction.repeatForever(floatSequence)]))
+            createDecorativeStar(type: type, position: position, size: size)
         }
+    }
+
+    /// Helper for creating a single decorative star
+    private func createDecorativeStar(type: StarType, position: CGPoint, size: CGFloat) {
+        let star = Star(type: type)
+        star.size = CGSize(width: size, height: size)
+        star.position = position
+        star.zPosition = 5
+
+        // Disable physics for static display
+        star.physicsBody = nil
+
+        // Don't block button touches!
+        star.isUserInteractionEnabled = false
+
+        addChild(star)
+        decorativeStars.append(star)
+
+        // Gentle floating animation
+        let floatUp = SKAction.moveBy(x: 0, y: 10, duration: Double.random(in: 3...5))
+        let floatDown = SKAction.moveBy(x: 0, y: -10, duration: Double.random(in: 3...5))
+        floatUp.timingMode = .easeInEaseOut
+        floatDown.timingMode = .easeInEaseOut
+
+        let floatSequence = SKAction.sequence([floatUp, floatDown])
+        let delay = SKAction.wait(forDuration: Double.random(in: 0...2))
+        star.run(SKAction.sequence([delay, SKAction.repeatForever(floatSequence)]))
     }
     
     // MARK: - Menu UI
@@ -398,16 +420,6 @@ class MenuScene: SKScene {
         
         // Add retro glow effect to the logo
         addLogoGlow(to: logo)
-        
-        // Subtitle (optional)
-        // let subtitle = SKLabelNode(fontNamed: "SFProDisplay-Regular")
-        // subtitle.text = "CONSUME TO SURVIVE"
-        // subtitle.fontSize = 16 * scale  // Scale font size
-        // subtitle.fontColor = UIColor(white: 0.7, alpha: 1.0)
-        // subtitle.position = CGPoint(x: 0, y: 160 * scale)  // Scale position
-        // subtitle.zPosition = 100
-        // subtitle.alpha = 0.8
-        // addChild(subtitle)
     }
     
     private func addLogoGlow(to logo: SKSpriteNode) {
@@ -430,8 +442,6 @@ class MenuScene: SKScene {
         effectNode.filter = blurFilter
         
         logo.addChild(effectNode)
-        
-        // Pulsing animation removed to prevent flashing effect
     }
     
     private func setupPlayButton() {
@@ -501,61 +511,33 @@ class MenuScene: SKScene {
     // MARK: - Retro Effects
     
     private func addRetroEffects() {
-        // Add film grain overlay (lighter than in-game)
-        if let grainTexture = generateGrainTexture() {
+        // Textures are already preloaded, so this is fast and safe on main thread
+        if let grainTexture = RetroAestheticManager.shared.getMenuGrainTexture() {
             let grainOverlay = SKSpriteNode(texture: grainTexture)
             let screenSize = UIScreen.main.bounds.size
-            grainOverlay.size = CGSize(width: screenSize.width * 2, height: screenSize.height * 2)  // Use screen size
-            grainOverlay.position = CGPoint.zero  // Centered
-            grainOverlay.alpha = 0.08  // Subtle for menu
+            grainOverlay.size = CGSize(width: screenSize.width * 2, height: screenSize.height * 2)
+            grainOverlay.position = CGPoint.zero
+            grainOverlay.alpha = 0.08
             grainOverlay.blendMode = .screen
             grainOverlay.zPosition = 150
-            grainOverlay.isUserInteractionEnabled = false  // CRITICAL: Don't block touches!
+            grainOverlay.isUserInteractionEnabled = false
             addChild(grainOverlay)
-            
-            // Grain animation removed to prevent flashing effect
         }
         
-        // Add vignette
-        addVignette()
-    }
-    
-    private func generateGrainTexture() -> SKTexture? {
-        let size = CGSize(width: 256, height: 256)
-        let renderer = UIGraphicsImageRenderer(size: size)
-        
-        let image = renderer.image { context in
-            UIColor(white: 0.5, alpha: 1.0).setFill()
-            context.fill(CGRect(origin: .zero, size: size))
-            
-            for _ in 0..<Int(size.width * size.height * 0.02) {
-                let x = CGFloat.random(in: 0..<size.width)
-                let y = CGFloat.random(in: 0..<size.height)
-                let brightness = CGFloat.random(in: 0.3...0.7)
-                
-                UIColor(white: brightness, alpha: 1.0).setFill()
-                context.fill(CGRect(x: x, y: y, width: 1, height: 1))
-            }
+        if let vignetteTexture = RetroAestheticManager.shared.getVignetteTexture() {
+            let vignetteOverlay = SKSpriteNode(texture: vignetteTexture)
+            let screenSize = UIScreen.main.bounds.size
+            vignetteOverlay.size = CGSize(width: screenSize.width * 2, height: screenSize.height * 2)
+            vignetteOverlay.position = CGPoint.zero
+            vignetteOverlay.alpha = RetroAestheticManager.Config.vignetteIntensity
+            vignetteOverlay.blendMode = .alpha
+            vignetteOverlay.zPosition = 149
+            vignetteOverlay.isUserInteractionEnabled = false
+            addChild(vignetteOverlay)
         }
-        
-        let texture = SKTexture(image: image)
-        texture.filteringMode = .nearest
-        return texture
     }
     
-    private func addVignette() {
-        // Reuse RetroAestheticManager's vignette texture
-        let vignetteTexture = RetroAestheticManager.shared.generateVignetteTexture()
-        let vignetteOverlay = SKSpriteNode(texture: vignetteTexture)
-        let screenSize = UIScreen.main.bounds.size
-        vignetteOverlay.size = CGSize(width: screenSize.width * 2, height: screenSize.height * 2)  // Use screen size
-        vignetteOverlay.position = CGPoint.zero  // Centered
-        vignetteOverlay.alpha = RetroAestheticManager.Config.vignetteIntensity
-        vignetteOverlay.blendMode = .alpha
-        vignetteOverlay.zPosition = 149
-        vignetteOverlay.isUserInteractionEnabled = false  // CRITICAL: Don't block touches!
-        addChild(vignetteOverlay)
-    }
+    
     
     // MARK: - Animations
     
@@ -887,13 +869,6 @@ class MenuScene: SKScene {
         let buttonSpacing: CGFloat = 20
         
         // Calculate modal height so that bottom is 14pt from Close button outer border
-        // Content from top: topPadding + titleHeight + rowSpacing + settingsRowsHeight + removeAdsSpacing
-        // Remove Ads button: removeAdsButtonHeight/2 (only half because we work with center points)
-        // Spacing between buttons: buttonSpacing
-        // Close button: closeButtonHeight
-        // Close button outer border extends 6pt below background
-        // We want 14pt from outer border to modal bottom
-        // So: bottomPadding = 14 + 6 = 20pt (from Close center to modal bottom accounting for outer border)
         let bottomPaddingFromOuterBorder: CGFloat = 14 + 6  // 14pt visible + 6pt outer border extension
         
         let modalHeight = topPadding + titleHeight + titleBottomSpacing + settingsRowsHeight + removeAdsSpacing + removeAdsButtonHeight/2 + buttonSpacing + closeButtonHeight + bottomPaddingFromOuterBorder
@@ -965,13 +940,6 @@ class MenuScene: SKScene {
         settingsModalContainer!.addChild(removeAdsButton)
         
         // Close button - position relative to Remove Ads button to maintain buttonSpacing
-        // Remove Ads button center is at currentY
-        // Remove Ads button background bottom is at: currentY - removeAdsButtonHeight/2
-        // We want buttonSpacing gap between Remove Ads background bottom and Close button background top
-        // Close button background top is at: closeButtonCenterY - closeButtonHeight/2
-        // So: closeButtonCenterY - closeButtonHeight/2 = currentY - removeAdsButtonHeight/2 - buttonSpacing
-        // Therefore: closeButtonCenterY = currentY - removeAdsButtonHeight/2 - buttonSpacing + closeButtonHeight/2
-        // Simplified: closeButtonCenterY = currentY - (removeAdsButtonHeight + buttonSpacing - closeButtonHeight)/2
         let removeAdsButtonY = currentY  // Save Remove Ads button center Y
         let closeButtonY = removeAdsButtonY - removeAdsButtonHeight/2 - buttonSpacing - closeButtonHeight/2
         
@@ -1005,9 +973,6 @@ class MenuScene: SKScene {
         let sliderX = modalWidth/2 - rightPadding - sliderWidth/2
         
         // Calculate available space for label
-        // Button ends at: buttonX + 20 (half button size)
-        // Slider starts at: sliderX - sliderWidth/2
-        // Gap needed: labelSpacing (20pt) between label end and slider start
         let buttonEnd = buttonX + 20 + buttonSpacing
         let sliderStart = sliderX - sliderWidth/2
         let availableWidth = sliderStart - buttonEnd - labelSpacing
@@ -1042,14 +1007,6 @@ class MenuScene: SKScene {
         labelNode.horizontalAlignmentMode = .left
         labelNode.verticalAlignmentMode = .center
         labelNode.position = CGPoint(x: labelX, y: y)
-        
-        // Constrain label width to prevent overlap with slider
-        // Calculate approximate text width and limit it
-        let maxLabelWidth = max(availableWidth, 80) // Minimum 80pt width, but use available if larger
-        // Note: SKLabelNode doesn't have direct width constraint, but we can clip or scale
-        // For now, we'll rely on the positioning calculation to prevent overlap
-        // If text is too long, it will naturally truncate or we could add a background rect
-        
         labelNode.zPosition = 1
         settingsModalContainer!.addChild(labelNode)
         

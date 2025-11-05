@@ -31,6 +31,11 @@ class RetroAestheticManager {
     private var scanlineOverlay: SKSpriteNode?
     private var grainTimer: Timer?
     
+    // Cached menu textures
+    private var cachedNebulaTexture: SKTexture?
+    private var cachedMenuGrainTexture: SKTexture?
+    private var cachedVignetteTexture: SKTexture?
+    
     private init() {
         preloadGrainTextures()
     }
@@ -70,6 +75,102 @@ class RetroAestheticManager {
         
         let texture = SKTexture(image: image)
         texture.filteringMode = .nearest // Preserve sharp grain
+        return texture
+    }
+    
+    // MARK: - Menu Texture Preloading
+    
+    func preloadMenuTextures() {
+        let start = CACurrentMediaTime()
+        
+        cachedNebulaTexture = generateNebulaTexture()
+        cachedMenuGrainTexture = generateMenuGrainTexture()
+        cachedVignetteTexture = generateVignetteTexture()
+        
+        let elapsed = (CACurrentMediaTime() - start) * 1000
+        print("✅ Menu textures preloaded in \(Int(elapsed))ms")
+    }
+    
+    func getNebulaTexture() -> SKTexture? {
+        // Generate on-demand if not cached yet (fallback for race condition)
+        if cachedNebulaTexture == nil {
+            cachedNebulaTexture = generateNebulaTexture()
+        }
+        return cachedNebulaTexture
+    }
+    
+    func getMenuGrainTexture() -> SKTexture? {
+        // Generate on-demand if not cached yet (fallback for race condition)
+        if cachedMenuGrainTexture == nil {
+            cachedMenuGrainTexture = generateMenuGrainTexture()
+        }
+        return cachedMenuGrainTexture
+    }
+    
+    func getVignetteTexture() -> SKTexture? {
+        // Generate on-demand if not cached yet (fallback for race condition)
+        if cachedVignetteTexture == nil {
+            cachedVignetteTexture = generateVignetteTexture()
+        }
+        return cachedVignetteTexture
+    }
+    
+    private func generateNebulaTexture() -> SKTexture {
+        let size = CGSize(width: 512, height: 512)
+        let renderer = UIGraphicsImageRenderer(size: size)
+        
+        let image = renderer.image { context in
+            let cgContext = context.cgContext
+            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let colors = [
+                UIColor(red: 0.1, green: 0.04, blue: 0.18, alpha: 1.0).cgColor,
+                UIColor(red: 0.08, green: 0.05, blue: 0.15, alpha: 0.8).cgColor,
+                UIColor(red: 0.06, green: 0.06, blue: 0.12, alpha: 0.4).cgColor,
+                UIColor(red: 0.04, green: 0.04, blue: 0.08, alpha: 0.0).cgColor
+            ] as CFArray
+            
+            let locations: [CGFloat] = [0.0, 0.3, 0.6, 1.0]
+            
+            guard let gradient = CGGradient(colorsSpace: colorSpace, colors: colors, locations: locations) else {
+                return
+            }
+            
+            let center = CGPoint(x: size.width / 2, y: size.height / 2)
+            let radius = size.width / 2
+            
+            cgContext.drawRadialGradient(
+                gradient,
+                startCenter: center,
+                startRadius: 0,
+                endCenter: center,
+                endRadius: radius,
+                options: [.drawsBeforeStartLocation, .drawsAfterEndLocation]
+            )
+        }
+        
+        return SKTexture(image: image)
+    }
+    
+    private func generateMenuGrainTexture() -> SKTexture {
+        let size = CGSize(width: 256, height: 256)
+        let renderer = UIGraphicsImageRenderer(size: size)
+        
+        let image = renderer.image { context in
+            UIColor(white: 0.5, alpha: 1.0).setFill()
+            context.fill(CGRect(origin: .zero, size: size))
+            
+            for _ in 0..<Int(size.width * size.height * 0.02) {
+                let x = CGFloat.random(in: 0..<size.width)
+                let y = CGFloat.random(in: 0..<size.height)
+                let brightness = CGFloat.random(in: 0.3...0.7)
+                
+                UIColor(white: brightness, alpha: 1.0).setFill()
+                context.fill(CGRect(x: x, y: y, width: 1, height: 1))
+            }
+        }
+        
+        let texture = SKTexture(image: image)
+        texture.filteringMode = .nearest
         return texture
     }
     
