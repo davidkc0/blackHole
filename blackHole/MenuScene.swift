@@ -570,25 +570,20 @@ class MenuScene: SKScene {
         // Play selection sound
         AudioManager.shared.playCorrectSound()
         
-        // Transition after brief delay
-        run(SKAction.sequence([
-            SKAction.wait(forDuration: 0.1),
-            SKAction.run { [weak self] in
-                self?.transitionToGame()
-            }
-        ]))
+        // Transition immediately - no delay to show loading screen instantly
+        transitionToGame()
     }
     
     private func transitionToGame() {
         // Stop menu music
         AudioManager.shared.stopBackgroundMusic()
 
-        // Go directly to game
-        let nextScene = GameScene(size: size)
+        // Go to game loading scene (handles haptics and texture preloading)
+        let nextScene = GameLoadingScene(size: size)
         nextScene.scaleMode = .aspectFill
 
-        // Transition with fade
-        let transition = SKTransition.fade(withDuration: 0.5)
+        // Use instant transition so loading screen appears immediately (no frozen screen)
+        let transition = SKTransition.crossFade(withDuration: 0.1)
         view?.presentScene(nextScene, transition: transition)
     }
     

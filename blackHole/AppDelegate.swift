@@ -46,14 +46,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             }
         }
         
-        // 3) ✅ Defer game textures until after first frame of the menu
-        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 2.0) {
-            print("🎨 Streaming game textures in background...")
-            TextureCache.shared.preloadAllTextures()
-            DispatchQueue.main.async {
-                NotificationCenter.default.post(name: NSNotification.Name("TexturesPreloaded"), object: nil)
-            }
-        }
+        // 3) ✅ Game textures will be loaded in GameLoadingScene when user taps Play
+        // This reduces initial loading time from ~45s to ~15-20s
         
         return true
     }

@@ -26,10 +26,7 @@ class GameViewController: UIViewController {
         // Present LoadingScene IMMEDIATELY - don't wait for anything
         presentLoadingScene()
         
-        // Defer haptic initialization until after loading screen is visible
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            _ = HapticManager.shared
-        }
+        // HapticManager will be initialized in GameLoadingScene when user taps Play
     }
     
     private func presentLoadingScene() {
