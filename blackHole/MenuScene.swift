@@ -45,6 +45,7 @@ class MenuScene: SKScene {
     var musicMuteButton: IconButton?
     var soundVolumeSlider: VolumeSlider?
     var musicVolumeSlider: VolumeSlider?
+    var removeAdsButton: MenuButton?
     
     // Audio settings state
     private var soundVolume: Float {
@@ -925,14 +926,35 @@ class MenuScene: SKScene {
         
         // Remove Ads button
         let removeAdsButtonWidth = modalWidth - 40
-        let removeAdsButton = MenuButton(text: "REMOVE ADS", size: .medium, fixedWidth: removeAdsButtonWidth)
+        
+        // Check purchase status to determine button state
+        let hasPurchased = IAPManager.shared.checkPurchaseStatus()
+        let buttonText = hasPurchased ? "ADS REMOVED ✓" : "REMOVE ADS"
+        
+        let removeAdsButton = MenuButton(text: buttonText, size: .medium, fixedWidth: removeAdsButtonWidth)
         removeAdsButton.position = CGPoint(x: 0, y: currentY)
         removeAdsButton.zPosition = 1
-        removeAdsButton.onTap = { [weak self] in
-            // TODO: Implement in-app purchase
-            print("Remove Ads tapped - IAP not yet implemented")
+        
+        // Disable button if already purchased
+        if hasPurchased {
+            removeAdsButton.alpha = 0.6
+            removeAdsButton.isUserInteractionEnabled = false
+        } else {
+            removeAdsButton.onTap = { [weak self] in
+                self?.handleRemoveAdsPurchase()
+            }
         }
+        
+        self.removeAdsButton = removeAdsButton
         settingsModalContainer!.addChild(removeAdsButton)
+        
+        // Listen for purchase success notification
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handlePurchaseSuccessNotification),
+            name: NSNotification.Name("RemoveAdsPurchased"),
+            object: nil
+        )
         
         // Close button - position relative to Remove Ads button to maintain buttonSpacing
         let removeAdsButtonY = currentY  // Save Remove Ads button center Y
@@ -1075,9 +1097,68 @@ class MenuScene: SKScene {
         }
     }
     
+    @objc private func handlePurchaseSuccessNotification() {
+        // Update button state when purchase succeeds
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self, let button = self.removeAdsButton else { return }
+            button.updateText("ADS REMOVED ✓")
+            button.alpha = 0.6
+            button.isUserInteractionEnabled = false
+            button.removeAllActions()
+        }
+    }
+    
+    private func handleRemoveAdsPurchase() {
+        guard let button = removeAdsButton else { return }
+        
+        // Show loading state
+        let originalText = button.text
+        button.updateText("LOADING...")
+        button.isUserInteractionEnabled = false
+        
+        // Initiate purchase
+        Task {
+            do {
+                let success = try await IAPManager.shared.purchaseRemoveAds()
+                
+                DispatchQueue.main.async { [weak self] in
+                    guard let self = self, let button = self.removeAdsButton else { return }
+                    
+                    if success {
+                        // Success - button will be updated by notification handler
+                        print("✅ Purchase successful!")
+                    } else {
+                        // Failed - restore button
+                        button.updateText(originalText.isEmpty ? "REMOVE ADS" : originalText)
+                        button.isUserInteractionEnabled = true
+                        print("❌ Purchase failed")
+                    }
+                }
+            } catch {
+                DispatchQueue.main.async { [weak self] in
+                    guard let self = self, let button = self.removeAdsButton else { return }
+                    
+                    // Restore button on error
+                    button.updateText(originalText.isEmpty ? "REMOVE ADS" : originalText)
+                    button.isUserInteractionEnabled = true
+                    
+                    // Show error message
+                    if let iapError = error as? IAPManager.IAPError {
+                        print("❌ Purchase error: \(iapError.localizedDescription)")
+                    } else {
+                        print("❌ Purchase error: \(error.localizedDescription)")
+                    }
+                }
+            }
+        }
+    }
+    
     func closeSettingsModal() {
         guard settingsModalOpen else { return }
         settingsModalOpen = false
+        
+        // Remove purchase notification observer
+        NotificationCenter.default.removeObserver(self, name: NSNotification.Name("RemoveAdsPurchased"), object: nil)
         
         // Fade out animation for modal
         let fadeOut = SKAction.fadeOut(withDuration: 0.2)
@@ -1090,6 +1171,7 @@ class MenuScene: SKScene {
             self.musicMuteButton = nil
             self.soundVolumeSlider = nil
             self.musicVolumeSlider = nil
+            self.removeAdsButton = nil
         }
         
         // Fade out and remove modal view

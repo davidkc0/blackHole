@@ -63,6 +63,13 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     
     private var starSpawnTimer: Timer?
     private var colorChangeTimer: Timer?
+    private var colorChangeWarningTimer: Timer?
+    private var remainingColorChangeTime: TimeInterval?
+    private var remainingWarningTime: TimeInterval?
+    private var warningWasActive = false
+    private var colorChangeTimerStartDate: Date?
+    private var colorChangeTimerInterval: TimeInterval?
+    private var pendingColorChangeType: StarType?
     
     // Grace period tracking
     private var lastCorrectEatTime: TimeInterval = 0
@@ -609,6 +616,11 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     private func scheduleNextColorChange() {
         // Random interval between min and max
         let interval = TimeInterval.random(in: GameConstants.colorChangeMinInterval...GameConstants.colorChangeMaxInterval)
+        colorChangeTimerInterval = interval
+        colorChangeTimerStartDate = Date()
+        remainingColorChangeTime = nil
+        remainingWarningTime = nil
+        warningWasActive = false
         
         // Store current target type to check if it will actually change
         let currentTargetType = blackHole.targetType
@@ -624,6 +636,8 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             newType = availableTypes.first ?? .whiteDwarf
         }
         
+        pendingColorChangeType = newType
+        
         // Only warn and change if the color is actually changing
         if newType != currentTargetType {
             // Schedule warning to start before the actual change
@@ -631,7 +645,10 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             
             // Start blinking warning if there's enough time for the warning
             if warningStartTime > 0 {
-                _ = Timer.scheduledTimer(withTimeInterval: warningStartTime, repeats: false) { [weak self] _ in
+                // Invalidate any existing warning timer first
+                colorChangeWarningTimer?.invalidate()
+                
+                colorChangeWarningTimer = Timer.scheduledTimer(withTimeInterval: warningStartTime, repeats: false) { [weak self] _ in
                     self?.startColorChangeWarning()
                 }
             }
@@ -639,6 +656,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         
         colorChangeTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: false) { [weak self] _ in
             guard let self = self else { return }
+            self.remainingColorChangeTime = nil
+            self.remainingWarningTime = nil
+            self.warningWasActive = false
             
             // Only change color if it's actually different
             if newType != currentTargetType {
@@ -646,6 +666,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
                 self.blackHole.updateTargetType(to: newType)
             }
             
+            self.pendingColorChangeType = nil
             self.scheduleNextColorChange()  // Reschedule with new random interval
         }
     }
@@ -892,6 +913,8 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     
     private func startColorChangeWarning() {
         guard !isGameOver else { return }
+        warningWasActive = true
+        remainingWarningTime = GameConstants.colorChangeWarningDuration
         
         // Create rapid blinking animation on photon ring
         let blinkOut = SKAction.fadeAlpha(to: 0.2, duration: 0.2)
@@ -912,6 +935,12 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     }
     
     private func stopColorChangeWarning() {
+        // Invalidate the warning timer
+        colorChangeWarningTimer?.invalidate()
+        colorChangeWarningTimer = nil
+        warningWasActive = false
+        remainingWarningTime = nil
+        
         // Stop blinking animation
         blackHole.photonRing.removeAction(forKey: "colorChangeWarning")
         blackHole.photonRing.alpha = 1.0  // Ensure it's fully visible
@@ -1071,6 +1100,8 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             
             // Haptic feedback for correct consumption
             HapticManager.shared.playCorrectStarHaptic(starSize: star.size.width)
+            
+            blackHole.playConsumptionFeedback()
         } else {
             // Wrong type: check grace period first
             let currentTime = CACurrentMediaTime()
@@ -2075,27 +2106,28 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     private func checkStarProximity() {
         for star in stars {
             let dist = distance(from: star.position, to: blackHole.position)
-            
-            // If star is too large and getting close, show warning
-            if !blackHole.canConsume(star) && dist < GameConstants.starWarningDistance {
+            let starRadius = star.size.width / 2
+            let blackHoleRadius = blackHole.currentDiameter / 2
+            let edgeDistance = max(0, dist - starRadius - blackHoleRadius)
+            let centerBasedThreshold = max(0, GameConstants.starWarningDistance - starRadius - blackHoleRadius)
+            let threshold = max(GameConstants.starWarningEdgeDistance, centerBasedThreshold)
+
+            if !blackHole.canConsume(star) && edgeDistance < threshold {
                 star.showWarningGlow()
-                
-                // Add dramatic rim light flash on black hole when very close
-                if dist < 80 {
+
+                if edgeDistance < GameConstants.starRimFlashDistance {
                     blackHole.retroRimLight?.run(SKAction.sequence([
                         SKAction.fadeAlpha(to: 1.0, duration: 0.1),
                         SKAction.fadeAlpha(to: RetroAestheticManager.Config.rimLightIntensity, duration: 0.1)
                     ]))
                 }
-                
-                // Haptic warning for dangerous star
+
                 if let starName = star.name {
-                    HapticManager.shared.startDangerProximityHaptic(starID: starName, distance: dist)
+                    HapticManager.shared.startDangerProximityHaptic(starID: starName, distance: edgeDistance)
                 }
             } else {
                 star.hideWarningGlow()
-                
-                // Stop haptic warning
+
                 if let starName = star.name {
                     HapticManager.shared.stopDangerProximityHaptic(starID: starName)
                 }
@@ -2548,13 +2580,20 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         
         // Freeze physics
         physicsWorld.speed = 0
+        captureColorChangeTimerState()
+        let wasWarningActive = warningWasActive
         
         // Stop color change warning if active
         stopColorChangeWarning()
+        warningWasActive = wasWarningActive
         
         // Pause timers
         starSpawnTimer?.invalidate()
         colorChangeTimer?.invalidate()
+        colorChangeWarningTimer?.invalidate()
+        starSpawnTimer = nil
+        colorChangeTimer = nil
+        colorChangeWarningTimer = nil
         
         // Show pause UI
         showPauseOverlay()
@@ -2571,7 +2610,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         
         // Resume timers
         scheduleNextStarSpawn()
-        scheduleNextColorChange()
+        resumeColorChangeTimerIfNeeded()
         
         // Remove pause UI
         removePauseOverlay()
@@ -2593,7 +2632,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         
         // Resume timers
         scheduleNextStarSpawn()
-        scheduleNextColorChange()
+        resumeColorChangeTimerIfNeeded()
         
         print("▶️ Game resumed")
     }
@@ -2695,18 +2734,20 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         
         isGamePaused = true
         physicsWorld.speed = 0
+        captureColorChangeTimerState()
+        let wasWarningActive = warningWasActive
         
         // Stop color change warning if active
         stopColorChangeWarning()
+        warningWasActive = wasWarningActive
         
-        // Store timer fire dates before pausing
-        if let starTimer = starSpawnTimer {
-            // Push fire date forward indefinitely
-            starTimer.fireDate = Date.distantFuture
-        }
-        if let colorTimer = colorChangeTimer {
-            colorTimer.fireDate = Date.distantFuture
-        }
+        // Invalidate timers before pausing
+        starSpawnTimer?.invalidate()
+        colorChangeTimer?.invalidate()
+        colorChangeWarningTimer?.invalidate()
+        starSpawnTimer = nil
+        colorChangeTimer = nil
+        colorChangeWarningTimer = nil
         
         print("📱 App backgrounded - game paused")
     }
@@ -2721,7 +2762,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         
         // Resume timers with their original intervals
         scheduleNextStarSpawn()
-        scheduleNextColorChange()
+        resumeColorChangeTimerIfNeeded()
         
         // Remove any existing pause overlay (from manual pause)
         removePauseOverlay()
@@ -2797,6 +2838,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     }
     
     private func returnToMenu() {
+        // Reset game state before returning to menu
+        GameManager.shared.resetScore()
+        
         // Create menu scene
         let menuScene = MenuScene(size: size)
         menuScene.scaleMode = .aspectFill
@@ -2833,5 +2877,74 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     deinit {
         starSpawnTimer?.invalidate()
         colorChangeTimer?.invalidate()
+        colorChangeWarningTimer?.invalidate()
+    }
+    
+    private func captureColorChangeTimerState() {
+        if let startDate = colorChangeTimerStartDate, let interval = colorChangeTimerInterval {
+            let elapsed = Date().timeIntervalSince(startDate)
+            remainingColorChangeTime = max(0, interval - elapsed)
+        } else if let timer = colorChangeTimer {
+            remainingColorChangeTime = max(0, timer.fireDate.timeIntervalSinceNow)
+        } else {
+            remainingColorChangeTime = nil
+        }
+        if let remaining = remainingColorChangeTime {
+            if warningWasActive {
+                remainingWarningTime = 0
+            } else {
+                remainingWarningTime = max(0, remaining - GameConstants.colorChangeWarningDuration)
+            }
+        } else {
+            remainingWarningTime = nil
+            warningWasActive = false
+        }
+    }
+
+    private func resumeColorChangeTimerIfNeeded() {
+        colorChangeTimer?.invalidate()
+        colorChangeTimer = nil
+        colorChangeWarningTimer?.invalidate()
+        colorChangeWarningTimer = nil
+        guard let intervalRemaining = remainingColorChangeTime else {
+            scheduleNextColorChange()
+            return
+        }
+        let interval = max(0.01, intervalRemaining)
+        colorChangeTimerInterval = interval
+        colorChangeTimerStartDate = Date()
+        let targetType = pendingColorChangeType ?? blackHole.targetType
+        if targetType != blackHole.targetType {
+            if warningWasActive {
+                startColorChangeWarning()
+            } else if let warningDelay = remainingWarningTime {
+                if warningDelay <= 0 {
+                    startColorChangeWarning()
+                    warningWasActive = true
+                } else {
+                    warningWasActive = false
+                    colorChangeWarningTimer = Timer.scheduledTimer(withTimeInterval: warningDelay, repeats: false) { [weak self] _ in
+                        self?.startColorChangeWarning()
+                    }
+                }
+            }
+        } else {
+            warningWasActive = false
+        }
+        colorChangeTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: false) { [weak self] _ in
+            guard let self = self else { return }
+            let pendingType = self.pendingColorChangeType ?? targetType
+            if pendingType != self.blackHole.targetType {
+                self.stopColorChangeWarning()
+                self.blackHole.updateTargetType(to: pendingType)
+            }
+            self.remainingColorChangeTime = nil
+            self.remainingWarningTime = nil
+            self.warningWasActive = false
+            self.pendingColorChangeType = nil
+            self.scheduleNextColorChange()
+        }
+        remainingColorChangeTime = nil
+        remainingWarningTime = nil
     }
 }

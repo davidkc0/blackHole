@@ -16,24 +16,40 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {                                                                                           
         print("🚀 App launching - staged initialization...")
         
-        // 1) Initialize AdMob SDK early (Google's recommendation) but on background thread
-        // This lets WebKit processes launch early and settle before menu is used
-        DispatchQueue.global(qos: .utility).async {
-            print("📱 Initializing AdMob SDK on background thread (early, non-blocking)...")
-            MobileAds.shared.start(completionHandler: { initializationStatus in
-                print("✅ AdMob SDK initialized")
-                DispatchQueue.main.async {
-                    NotificationCenter.default.post(name: NSNotification.Name("AdMobSDKInitialized"), object: nil)
-                }
-            })
+        // Initialize IAPManager and restore purchases (async, non-blocking)
+        Task {
+            do {
+                _ = try await IAPManager.shared.restorePurchases()
+            } catch {
+                print("⚠️ Failed to restore purchases: \(error.localizedDescription)")
+            }
         }
         
-        // Timeout after 10 seconds (in case SDK initialization hangs)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 10.0) {
-            NotificationCenter.default.post(
-                name: NSNotification.Name("AdMobSDKInitialized"),
-                object: nil
-            )
+        // Check if ads are removed before initializing AdMob
+        if IAPManager.shared.checkPurchaseStatus() {
+            print("✅ Ads removed - skipping AdMob SDK initialization")
+            // Post notification immediately so LoadingScene doesn't wait
+            NotificationCenter.default.post(name: NSNotification.Name("AdMobSDKInitialized"), object: nil)
+        } else {
+            // 1) Initialize AdMob SDK early (Google's recommendation) but on background thread
+            // This lets WebKit processes launch early and settle before menu is used
+            DispatchQueue.global(qos: .utility).async {
+                print("📱 Initializing AdMob SDK on background thread (early, non-blocking)...")
+                MobileAds.shared.start(completionHandler: { initializationStatus in
+                    print("✅ AdMob SDK initialized")
+                    DispatchQueue.main.async {
+                        NotificationCenter.default.post(name: NSNotification.Name("AdMobSDKInitialized"), object: nil)
+                    }
+                })
+            }
+            
+            // Timeout after 10 seconds (in case SDK initialization hangs)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 10.0) {
+                NotificationCenter.default.post(
+                    name: NSNotification.Name("AdMobSDKInitialized"),
+                    object: nil
+                )
+            }
         }
         
         // 2) ✅ Only preload menu visuals up front

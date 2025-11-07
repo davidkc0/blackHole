@@ -115,4 +115,14 @@ class MenuButton: SKNode {
         let scaleUp = SKAction.scale(to: 1.0, duration: 0.1)
         run(scaleUp)
     }
+    
+    /// Update the button text
+    func updateText(_ newText: String) {
+        label.text = newText.uppercased()
+    }
+    
+    /// Get the current button text
+    var text: String {
+        return label.text ?? ""
+    }
 }

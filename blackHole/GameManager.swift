@@ -40,6 +40,11 @@ class GameManager {
     }
     
     func shouldShowAd() -> Bool {
+        // Don't show ads if user has purchased Remove Ads
+        if IAPManager.shared.checkPurchaseStatus() {
+            return false
+        }
+        
         // Show ad every 3rd game (or 2nd, change showAdEveryNGames to 2)
         return gamesPlayedSinceLastAd >= showAdEveryNGames
     }

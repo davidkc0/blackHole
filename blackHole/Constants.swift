@@ -53,6 +53,8 @@ enum GameConstants {
     static let starMaxDistanceFromScreen: CGFloat = 1000
     static let starInitialVelocityRange: CGFloat = 80
     static let starWarningDistance: CGFloat = 300
+    static let starWarningEdgeDistance: CGFloat = 80
+    static let starRimFlashDistance: CGFloat = 40
     
     // Physics
     static let gravitationalConstant: CGFloat = 800

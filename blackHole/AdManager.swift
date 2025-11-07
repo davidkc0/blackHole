@@ -47,6 +47,13 @@ class AdManager: NSObject {
     /// Load an interstitial ad
     /// Called AFTER game over, not during gameplay
     private func loadInterstitial(completion: @escaping (Bool) -> Void) {
+        // Check if ads are removed
+        if IAPManager.shared.checkPurchaseStatus() {
+            print("ℹ️ Ads removed - skipping ad load")
+            completion(false)
+            return
+        }
+        
         guard sdkInitialized else {
             print("⚠️ SDK not initialized")
             completion(false)
@@ -129,6 +136,13 @@ class AdManager: NSObject {
         onAdDismissed: @escaping () -> Void,
         onNoAd: @escaping () -> Void
     ) {
+        // Check if ads are removed
+        if IAPManager.shared.checkPurchaseStatus() {
+            print("ℹ️ Ads removed - skipping ad display")
+            onNoAd()
+            return
+        }
+        
         print("🎬 Game over - loading ad...")
         
         // If ad already loaded, show it immediately
@@ -173,6 +187,13 @@ class AdManager: NSObject {
     /// Called by the Loading Screen *after* the SDK is confirmed ready.
     /// This is the new "first load" trigger.
     func preloadFirstAd(completion: @escaping (Bool) -> Void) {
+        // Check if ads are removed
+        if IAPManager.shared.checkPurchaseStatus() {
+            print("ℹ️ Ads removed - skipping ad preload")
+            completion(false) // Fire completion immediately
+            return
+        }
+        
         guard sdkInitialized else {
             print("⚠️ AdManager: preloadFirstAd called but SDK not ready.")
             completion(false) // Fire completion immediately

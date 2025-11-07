@@ -39,24 +39,32 @@ class LoadingScene: SKScene {
         }
         // -------------------------
         
-        // 2. Add observers for our "checklist"
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleAdMobReady),
-            name: NSNotification.Name("AdMobSDKInitialized"), // From AppDelegate
-            object: nil
-        )
+        // Check if ads are removed
+        if IAPManager.shared.checkPurchaseStatus() {
+            print("✅ LoadingScene: Ads removed - skipping AdMob initialization")
+            // Mark AdMob as ready immediately (we don't need it)
+            isAdMobReady = true
+        } else {
+            // 2. Add observer for AdMob SDK initialization
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(handleAdMobReady),
+                name: NSNotification.Name("AdMobSDKInitialized"), // From AppDelegate
+                object: nil
+            )
+            
+            // 3. IMPORTANT: Make sure AdManager is initialized NOW
+            //    so it can *catch* the "AdMobSDKInitialized" notification.
+            _ = AdManager.shared
+        }
         
+        // Add observer for menu textures
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(handleMenuTexturesReady),
             name: NSNotification.Name("MenuBootstrapReady"), // From AppDelegate
             object: nil
         )
-        
-        // 3. IMPORTANT: Make sure AdManager is initialized NOW
-        //    so it can *catch* the "AdMobSDKInitialized" notification.
-        _ = AdManager.shared
     }
     
     // --- New Function ---
@@ -112,52 +120,89 @@ class LoadingScene: SKScene {
         isTransitioning = true
         NotificationCenter.default.removeObserver(self) // Clean up observers
         
-        print("🚀 LoadingScene: SDK and Textures ready. Now pre-loading ad (8s block)...")
-        
-        // 5. STEP 1: Load the ad FIRST. All the heavy lifting must wait for this.
-        AdManager.shared.preloadFirstAd { [weak self] success in
+        // Check if ads are removed
+        if IAPManager.shared.checkPurchaseStatus() {
+            print("✅ LoadingScene: Ads removed - skipping ad preload, loading menu directly")
+            // Skip ad preloading entirely, go straight to menu scene creation
+            proceedToMenuScene()
+        } else {
+            print("🚀 LoadingScene: SDK and Textures ready. Now pre-loading ad (8s block)...")
             
+            // 5. STEP 1: Load the ad FIRST. All the heavy lifting must wait for this.
+            AdManager.shared.preloadFirstAd { [weak self] success in
+                
+                guard let self = self else { return }
+                
+                // --- ADMOB AD LOAD & INITIAL FREEZE IS OVER ---
+                
+                // Update UI before starting the next heavy task
+                DispatchQueue.main.async {
+                    self.loadingLabel?.text = "LOADING MENU ASSETS..." 
+                }
+                
+                // 6. STEP 2: Now that ad load is done, run the HEAVY texture load 
+                //    on a background thread.
+                DispatchQueue.global(qos: .userInitiated).async {
+                    
+                    // This is the 29-second operation:
+                    let menuScene = MenuScene(size: self.size) 
+                    menuScene.scaleMode = self.scaleMode
+                    
+                    // --- ALL BACKGROUND WORK IS DONE (Texture Load Complete) ---
+                    
+                    // Return to main thread for final transition
+                    DispatchQueue.main.async {
+                        
+                        // Stop the loading text animation and set final feedback
+                        self.loadingLabel?.removeAllActions()
+                        self.loadingLabel?.text = "READY" 
+
+                        // 7. STEP 3: Use a short buffer to absorb final SpriteKit/WebKit presentation overhead
+                        let finalDelay: TimeInterval = 1.0 
+                        self.run(SKAction.wait(forDuration: finalDelay)) {
+                            
+                            if success {
+                                print("✅ LoadingScene: Ad pre-loaded. Transitioning to menu.")
+                            } else {
+                                print("⚠️ LoadingScene: Ad pre-load failed. Transitioning to menu anyway.")
+                            }
+                            
+                            let transition = SKTransition.fade(withDuration: 0.5)
+                            self.view?.presentScene(menuScene, transition: transition)
+                            
+                            print("✅ LoadingScene: Transitioning to MenuScene. All heavy loading complete.")
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    /// Proceed to menu scene creation (used when ads are removed)
+    private func proceedToMenuScene() {
+        // Update UI
+        DispatchQueue.main.async { [weak self] in
+            self?.loadingLabel?.text = "LOADING MENU ASSETS..." 
+        }
+        
+        // Load menu scene on background thread
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
             
-            // --- ADMOB AD LOAD & INITIAL FREEZE IS OVER ---
+            let menuScene = MenuScene(size: self.size) 
+            menuScene.scaleMode = self.scaleMode
             
-            // Update UI before starting the next heavy task
+            // Return to main thread for transition
             DispatchQueue.main.async {
-                self.loadingLabel?.text = "LOADING MENU ASSETS..." 
-            }
-            
-            // 6. STEP 2: Now that ad load is done, run the HEAVY texture load 
-            //    on a background thread.
-            DispatchQueue.global(qos: .userInitiated).async {
+                self.loadingLabel?.removeAllActions()
+                self.loadingLabel?.text = "READY"
                 
-                // This is the 29-second operation:
-                let menuScene = MenuScene(size: self.size) 
-                menuScene.scaleMode = self.scaleMode
-                
-                // --- ALL BACKGROUND WORK IS DONE (Texture Load Complete) ---
-                
-                // Return to main thread for final transition
-                DispatchQueue.main.async {
+                // Brief delay before transition
+                self.run(SKAction.wait(forDuration: 0.5)) {
+                    let transition = SKTransition.fade(withDuration: 0.5)
+                    self.view?.presentScene(menuScene, transition: transition)
                     
-                    // Stop the loading text animation and set final feedback
-                    self.loadingLabel?.removeAllActions()
-                    self.loadingLabel?.text = "READY" 
-
-                    // 7. STEP 3: Use a short buffer to absorb final SpriteKit/WebKit presentation overhead
-                    let finalDelay: TimeInterval = 1.0 
-                    self.run(SKAction.wait(forDuration: finalDelay)) {
-                        
-                        if success {
-                            print("✅ LoadingScene: Ad pre-loaded. Transitioning to menu.")
-                        } else {
-                            print("⚠️ LoadingScene: Ad pre-load failed. Transitioning to menu anyway.")
-                        }
-                        
-                        let transition = SKTransition.fade(withDuration: 0.5)
-                        self.view?.presentScene(menuScene, transition: transition)
-                        
-                        print("✅ LoadingScene: Transitioning to MenuScene. All heavy loading complete.")
-                    }
+                    print("✅ LoadingScene: Transitioning to MenuScene (ads removed - faster load).")
                 }
             }
         }

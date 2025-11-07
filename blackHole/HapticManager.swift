@@ -84,17 +84,10 @@ class HapticManager {
         let currentTime = CACurrentMediaTime()
         guard currentTime - lastDangerHapticTime > 0.2 else { return }
         
-        // Calculate pulse interval based on distance
-        let pulseInterval: TimeInterval
-        if distance > 200 {
-            pulseInterval = 1.0      // Slow
-        } else if distance > 150 {
-            pulseInterval = 0.6      // Medium
-        } else if distance > 100 {
-            pulseInterval = 0.3      // Fast
-        } else {
-            pulseInterval = 0.15     // Urgent!
-        }
+        // Calculate pulse interval based on edge distance (0 = touching surface)
+        let clampedDistance = max(0, min(distance, GameConstants.starWarningEdgeDistance))
+        let ratio = clampedDistance / GameConstants.starWarningEdgeDistance
+        let pulseInterval = 0.15 + (0.85 * ratio) // Ranges from 0.15 (urgent) to ~1.0 (distant)
         
         // Cancel existing timer for this star
         dangerousStarTimers[starID]?.invalidate()
