@@ -46,6 +46,9 @@ class MenuScene: SKScene {
     var soundVolumeSlider: VolumeSlider?
     var musicVolumeSlider: VolumeSlider?
     var removeAdsButton: MenuButton?
+    var restorePurchasesButton: MenuButton?
+    var privacyPolicyButton: MenuButton?
+    private var isRestoringPurchases = false
     
     // Audio settings state
     private var soundVolume: Float {
@@ -394,6 +397,8 @@ class MenuScene: SKScene {
         
         // Icon Buttons
         setupIconButtons()
+        applyInitialAnimations()
+        addVersionLabel()
     }
     
     private func setupTitle() {
@@ -507,6 +512,67 @@ class MenuScene: SKScene {
             print("Discord button tapped - feature coming soon")
         }
         addChild(discordIconButton)
+    }
+    
+    private func applyInitialAnimations() {
+        // Fade in the play button
+        playButton.alpha = 0
+        playButton.setScale(0.9)
+        let fadeInPlay = SKAction.fadeIn(withDuration: 0.3)
+        let scaleUpPlay = SKAction.scale(to: 1.0, duration: 0.3)
+        scaleUpPlay.timingMode = .easeOut
+        playButton.run(SKAction.group([fadeInPlay, scaleUpPlay]))
+        
+        // Fade in the timed mode button
+        timedModeButton.alpha = 0
+        timedModeButton.setScale(0.9)
+        let fadeInTimedMode = SKAction.fadeIn(withDuration: 0.3)
+        let scaleUpTimedMode = SKAction.scale(to: 1.0, duration: 0.3)
+        scaleUpTimedMode.timingMode = .easeOut
+        timedModeButton.run(SKAction.group([fadeInTimedMode, scaleUpTimedMode]))
+        
+        // Fade in the settings button
+        settingsIconButton.alpha = 0
+        settingsIconButton.setScale(0.9)
+        let fadeInSettings = SKAction.fadeIn(withDuration: 0.3)
+        let scaleUpSettings = SKAction.scale(to: 1.0, duration: 0.3)
+        scaleUpSettings.timingMode = .easeOut
+        settingsIconButton.run(SKAction.group([fadeInSettings, scaleUpSettings]))
+        
+        // Fade in the stats button
+        statsIconButton.alpha = 0
+        statsIconButton.setScale(0.9)
+        let fadeInStats = SKAction.fadeIn(withDuration: 0.3)
+        let scaleUpStats = SKAction.scale(to: 1.0, duration: 0.3)
+        scaleUpStats.timingMode = .easeOut
+        statsIconButton.run(SKAction.group([fadeInStats, scaleUpStats]))
+        
+        // Fade in the discord button
+        discordIconButton.alpha = 0
+        discordIconButton.setScale(0.9)
+        let fadeInDiscord = SKAction.fadeIn(withDuration: 0.3)
+        let scaleUpDiscord = SKAction.scale(to: 1.0, duration: 0.3)
+        scaleUpDiscord.timingMode = .easeOut
+        discordIconButton.run(SKAction.group([fadeInDiscord, scaleUpDiscord]))
+    }
+    
+    private func addVersionLabel() {
+        guard let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String, !version.isEmpty else { return }
+        let label = SKLabelNode(fontNamed: "NDAstroneer-Regular")
+        label.text = "v \(version)"
+        label.fontSize = 14
+        label.fontColor = UIColor.white.withAlphaComponent(0.6)
+        label.horizontalAlignmentMode = .left
+        label.verticalAlignmentMode = .bottom
+        let inset: CGFloat = 20
+        label.position = CGPoint(x: -size.width/2 + inset, y: -size.height/2 + inset)
+        label.zPosition = 5
+        label.alpha = 0
+        addChild(label)
+        
+        let fade = SKAction.fadeIn(withDuration: 0.4)
+        fade.timingMode = .easeIn
+        label.run(SKAction.sequence([SKAction.wait(forDuration: 0.3), fade]))
     }
     
     // MARK: - Retro Effects
@@ -867,7 +933,8 @@ class MenuScene: SKScene {
         // Calculate modal height so that bottom is 14pt from Close button outer border
         let bottomPaddingFromOuterBorder: CGFloat = 14 + 6  // 14pt visible + 6pt outer border extension
         
-        let modalHeight = topPadding + titleHeight + titleBottomSpacing + settingsRowsHeight + removeAdsSpacing + removeAdsButtonHeight/2 + buttonSpacing + closeButtonHeight + bottomPaddingFromOuterBorder
+        let buttonStackHeight = removeAdsButtonHeight * 3 + closeButtonHeight + buttonSpacing * 3
+        let modalHeight = topPadding + titleHeight + titleBottomSpacing + settingsRowsHeight + removeAdsSpacing + buttonStackHeight + bottomPaddingFromOuterBorder
         
         // Create modal background
         let modalRect = CGRect(x: -modalWidth/2, y: -modalHeight/2, width: modalWidth, height: modalHeight)
@@ -956,13 +1023,31 @@ class MenuScene: SKScene {
             object: nil
         )
         
-        // Close button - position relative to Remove Ads button to maintain buttonSpacing
-        let removeAdsButtonY = currentY  // Save Remove Ads button center Y
-        let closeButtonY = removeAdsButtonY - removeAdsButtonHeight/2 - buttonSpacing - closeButtonHeight/2
+        currentY -= (removeAdsButtonHeight + buttonSpacing)
+        let restoreButton = MenuButton(text: "RESTORE PURCHASES", size: .medium, fixedWidth: removeAdsButtonWidth)
+        restoreButton.position = CGPoint(x: 0, y: currentY)
+        restoreButton.zPosition = 1
+        restoreButton.onTap = { [weak self] in
+            guard let self = self, let button = self.restorePurchasesButton, !self.isRestoringPurchases else { return }
+            self.handleRestorePurchases(button: button)
+        }
+        self.restorePurchasesButton = restoreButton
+        settingsModalContainer!.addChild(restoreButton)
+        currentY -= (removeAdsButtonHeight + buttonSpacing)
+
+        let privacyButton = MenuButton(text: "PRIVACY POLICY", size: .medium, fixedWidth: removeAdsButtonWidth)
+        privacyButton.position = CGPoint(x: 0, y: currentY)
+        privacyButton.zPosition = 1
+        privacyButton.onTap = { [weak self] in
+            self?.openPrivacyPolicy()
+        }
+        self.privacyPolicyButton = privacyButton
+        settingsModalContainer!.addChild(privacyButton)
+        currentY -= (removeAdsButtonHeight + buttonSpacing)
         
         let buttonWidth = modalWidth - 40
         settingsCloseButton = MenuButton(text: "CLOSE", size: .medium, fixedWidth: buttonWidth)
-        settingsCloseButton!.position = CGPoint(x: 0, y: closeButtonY)
+        settingsCloseButton!.position = CGPoint(x: 0, y: currentY)
         settingsCloseButton!.zPosition = 1
         settingsModalContainer!.addChild(settingsCloseButton!)
         
@@ -1152,6 +1237,41 @@ class MenuScene: SKScene {
             }
         }
     }
+
+    private func handleRestorePurchases(button: MenuButton) {
+        guard !isRestoringPurchases else { return }
+        isRestoringPurchases = true
+        let originalText = button.text
+        button.updateText("RESTORING...")
+        button.isUserInteractionEnabled = false
+        
+        Task {
+            do {
+                let restored = try await IAPManager.shared.restorePurchases()
+                DispatchQueue.main.async { [weak self] in
+                    guard let self = self else { return }
+                    self.isRestoringPurchases = false
+                    if restored {
+                        button.updateText("RESTORED ✓")
+                        button.alpha = 0.6
+                        button.onTap = nil
+                    } else {
+                        button.updateText(originalText.isEmpty ? "RESTORE PURCHASES" : originalText)
+                        button.isUserInteractionEnabled = true
+                        print("ℹ️ Restore purchases: nothing to restore")
+                    }
+                }
+            } catch {
+                DispatchQueue.main.async { [weak self] in
+                    guard let self = self else { return }
+                    self.isRestoringPurchases = false
+                    button.updateText(originalText.isEmpty ? "RESTORE PURCHASES" : originalText)
+                    button.isUserInteractionEnabled = true
+                    print("❌ Restore purchases failed: \(error.localizedDescription)")
+                }
+            }
+        }
+    }
     
     func closeSettingsModal() {
         guard settingsModalOpen else { return }
@@ -1172,6 +1292,9 @@ class MenuScene: SKScene {
             self.soundVolumeSlider = nil
             self.musicVolumeSlider = nil
             self.removeAdsButton = nil
+            self.restorePurchasesButton = nil
+            self.privacyPolicyButton = nil
+            self.isRestoringPurchases = false
         }
         
         // Fade out and remove modal view
@@ -1192,6 +1315,17 @@ class MenuScene: SKScene {
                 blurView.removeFromSuperview()
             }
             settingsBlurView = nil
+        }
+    }
+
+    private func openPrivacyPolicy() {
+        guard let url = URL(string: "https://atreidesgames.com/privacy") else { return }
+        DispatchQueue.main.async {
+            if UIApplication.shared.canOpenURL(url) {
+                UIApplication.shared.open(url, options: [:], completionHandler: nil)
+            } else {
+                print("❌ Unable to open privacy policy URL")
+            }
         }
     }
 }
@@ -1250,6 +1384,30 @@ private class SettingsModalScene: SKScene {
                 return
             }
         }
+
+        if let removeButton = menuScene.removeAdsButton {
+            let buttonLocation = convert(location, to: removeButton.parent!)
+            if removeButton.contains(point: buttonLocation) {
+                removeButton.animatePress()
+                return
+            }
+        }
+
+        if let restoreButton = menuScene.restorePurchasesButton {
+            let buttonLocation = convert(location, to: restoreButton.parent!)
+            if restoreButton.contains(point: buttonLocation) {
+                restoreButton.animatePress()
+                return
+            }
+        }
+
+        if let privacyButton = menuScene.privacyPolicyButton {
+            let buttonLocation = convert(location, to: privacyButton.parent!)
+            if privacyButton.contains(point: buttonLocation) {
+                privacyButton.animatePress()
+                return
+            }
+        }
     }
     
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
@@ -1294,6 +1452,33 @@ private class SettingsModalScene: SKScene {
             if musicButton.contains(point: buttonLocation) {
                 musicButton.animateRelease()
                 musicButton.onTap?()
+                return
+            }
+        }
+
+        if let removeButton = menuScene.removeAdsButton {
+            let buttonLocation = convert(location, to: removeButton.parent!)
+            if removeButton.contains(point: buttonLocation) {
+                removeButton.animateRelease()
+                removeButton.onTap?()
+                return
+            }
+        }
+
+        if let restoreButton = menuScene.restorePurchasesButton {
+            let buttonLocation = convert(location, to: restoreButton.parent!)
+            if restoreButton.contains(point: buttonLocation) {
+                restoreButton.animateRelease()
+                restoreButton.onTap?()
+                return
+            }
+        }
+
+        if let privacyButton = menuScene.privacyPolicyButton {
+            let buttonLocation = convert(location, to: privacyButton.parent!)
+            if privacyButton.contains(point: buttonLocation) {
+                privacyButton.animateRelease()
+                privacyButton.onTap?()
                 return
             }
         }
