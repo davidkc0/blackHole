@@ -11,6 +11,7 @@ class LoadingScene: SKScene {
     
     // --- New Property ---
     private var loadingLabel: SKLabelNode?
+    private weak var dotsOverlay: LoadingDotsView?
     // --------------------
     
     private var isAdMobReady = false
@@ -23,21 +24,16 @@ class LoadingScene: SKScene {
         
         backgroundColor = .black
         
-        // 1. Create and store the loading label
+        // 1. Create and store the loading label (kept for status text updates)
         let label = SKLabelNode(fontNamed: "NDAstroneer-Regular")
         label.text = "LOADING" // Set initial text (will be animated)
         label.fontSize = 24
         label.fontColor = .white
         label.position = CGPoint(x: 0, y: 0) // Anchor point is (0.5, 0.5)
+        label.alpha = 0 // Hide actual SKLabel; UIKit overlay handles visuals
         addChild(label)
         self.loadingLabel = label
-        
-        // --- New Function Call ---
-        // Start the "..." animation after a tiny delay to ensure label is ready
-        run(SKAction.wait(forDuration: 0.1)) { [weak self] in
-            self?.animateLoadingText()
-        }
-        // -------------------------
+        attachDotsOverlay(text: "LOADING", animated: true)
         
         // Check if ads are removed
         if IAPManager.shared.checkPurchaseStatus() {
@@ -137,7 +133,8 @@ class LoadingScene: SKScene {
                 
                 // Update UI before starting the next heavy task
                 DispatchQueue.main.async {
-                    self.loadingLabel?.text = "LOADING MENU ASSETS..." 
+                    self.loadingLabel?.text = "LOADING MENU ASSETS..."
+                    self.dotsOverlay?.setText("LOADING MENU ASSETS...", animated: false)
                 }
                 
                 // 6. STEP 2: Now that ad load is done, run the HEAVY texture load 
@@ -155,7 +152,8 @@ class LoadingScene: SKScene {
                         
                         // Stop the loading text animation and set final feedback
                         self.loadingLabel?.removeAllActions()
-                        self.loadingLabel?.text = "READY" 
+                        self.loadingLabel?.text = "READY"
+                        self.dotsOverlay?.setText("READY", animated: false)
 
                         // 7. STEP 3: Use a short buffer to absorb final SpriteKit/WebKit presentation overhead
                         let finalDelay: TimeInterval = 1.0 
@@ -167,6 +165,7 @@ class LoadingScene: SKScene {
                                 print("⚠️ LoadingScene: Ad pre-load failed. Transitioning to menu anyway.")
                             }
                             
+                            self.removeDotsOverlay()
                             let transition = SKTransition.fade(withDuration: 0.5)
                             self.view?.presentScene(menuScene, transition: transition)
                             
@@ -182,7 +181,9 @@ class LoadingScene: SKScene {
     private func proceedToMenuScene() {
         // Update UI
         DispatchQueue.main.async { [weak self] in
-            self?.loadingLabel?.text = "LOADING MENU ASSETS..." 
+            guard let self = self else { return }
+            self.loadingLabel?.text = "LOADING MENU ASSETS..."
+            self.dotsOverlay?.setText("LOADING MENU ASSETS...", animated: false)
         }
         
         // Load menu scene on background thread
@@ -196,9 +197,11 @@ class LoadingScene: SKScene {
             DispatchQueue.main.async {
                 self.loadingLabel?.removeAllActions()
                 self.loadingLabel?.text = "READY"
+                self.dotsOverlay?.setText("READY", animated: false)
                 
                 // Brief delay before transition
                 self.run(SKAction.wait(forDuration: 0.5)) {
+                    self.removeDotsOverlay()
                     let transition = SKTransition.fade(withDuration: 0.5)
                     self.view?.presentScene(menuScene, transition: transition)
                     
@@ -210,6 +213,24 @@ class LoadingScene: SKScene {
     
     deinit {
         NotificationCenter.default.removeObserver(self)
+        dotsOverlay?.removeFromSuperviewAnimated()
+    }
+
+    private func attachDotsOverlay(text: String, animated: Bool) {
+        guard let skView = view, dotsOverlay == nil else { return }
+        let overlay = LoadingDotsView()
+        skView.addSubview(overlay)
+        NSLayoutConstraint.activate([
+            overlay.centerXAnchor.constraint(equalTo: skView.centerXAnchor),
+            overlay.centerYAnchor.constraint(equalTo: skView.centerYAnchor)
+        ])
+        overlay.setText(text, animated: animated)
+        dotsOverlay = overlay
+    }
+    
+    private func removeDotsOverlay() {
+        dotsOverlay?.removeFromSuperviewAnimated()
+        dotsOverlay = nil
     }
 }
 

@@ -18,15 +18,22 @@ class HapticManager {
     private var notification: UINotificationFeedbackGenerator?
     
     // State tracking
-    private var isHapticsEnabled: Bool = true
+    private let hapticsEnabledKey = "HapticManager.hapticsEnabled"
+    private var isHapticsEnabled: Bool
     private var dangerousStarTimers: [String: Timer] = [:]
     private var lastDangerHapticTime: TimeInterval = 0
+    private var generatorsPrepared = false
     
     private init() {
-        setupGenerators()
+        if UserDefaults.standard.object(forKey: hapticsEnabledKey) == nil {
+            UserDefaults.standard.set(true, forKey: hapticsEnabledKey)
+        }
+        isHapticsEnabled = UserDefaults.standard.bool(forKey: hapticsEnabledKey)
     }
     
-    private func setupGenerators() {
+    private func prepareGeneratorsIfNeeded() {
+        guard !generatorsPrepared else { return }
+        generatorsPrepared = true
         impactLight = UIImpactFeedbackGenerator(style: .light)
         impactMedium = UIImpactFeedbackGenerator(style: .medium)
         impactHeavy = UIImpactFeedbackGenerator(style: .heavy)
@@ -43,6 +50,7 @@ class HapticManager {
     
     func playCorrectStarHaptic(starSize: CGFloat) {
         guard isHapticsEnabled else { return }
+        prepareGeneratorsIfNeeded()
         
         // Base success notification
         notification?.notificationOccurred(.success)
@@ -61,6 +69,7 @@ class HapticManager {
     
     func playWrongStarHaptic(isInDangerZone: Bool) {
         guard isHapticsEnabled else { return }
+        prepareGeneratorsIfNeeded()
         
         // Base error notification
         notification?.notificationOccurred(.error)
@@ -79,6 +88,7 @@ class HapticManager {
     
     func startDangerProximityHaptic(starID: String, distance: CGFloat) {
         guard isHapticsEnabled else { return }
+        prepareGeneratorsIfNeeded()
         
         // Cooldown check (prevent overlapping pulses)
         let currentTime = CACurrentMediaTime()
@@ -125,6 +135,7 @@ class HapticManager {
     
     func playPowerUpHaptic(type: PowerUpType) {
         guard isHapticsEnabled else { return }
+        prepareGeneratorsIfNeeded()
         
         // Success notification
         notification?.notificationOccurred(.success)
@@ -149,31 +160,45 @@ class HapticManager {
     
     func setHapticsEnabled(_ enabled: Bool) {
         isHapticsEnabled = enabled
+        UserDefaults.standard.set(enabled, forKey: hapticsEnabledKey)
         
         if !enabled {
             stopAllDangerProximityHaptics()
         }
     }
     
+    func areHapticsEnabled() -> Bool {
+        return isHapticsEnabled
+    }
+    
+    func warmUpIfNeeded() {
+        guard isHapticsEnabled else { return }
+        prepareGeneratorsIfNeeded()
+    }
+    
     // MARK: - Tutorial Haptic Methods
     
     func playSelection() {
         guard isHapticsEnabled else { return }
+        prepareGeneratorsIfNeeded()
         impactLight?.impactOccurred()
     }
     
     func playSuccess() {
         guard isHapticsEnabled else { return }
+        prepareGeneratorsIfNeeded()
         notification?.notificationOccurred(.success)
     }
     
     func playError() {
         guard isHapticsEnabled else { return }
+        prepareGeneratorsIfNeeded()
         notification?.notificationOccurred(.error)
     }
     
     func playWarning() {
         guard isHapticsEnabled else { return }
+        prepareGeneratorsIfNeeded()
         notification?.notificationOccurred(.warning)
     }
 }

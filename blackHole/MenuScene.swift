@@ -48,6 +48,7 @@ class MenuScene: SKScene {
     var soundVolumeSlider: VolumeSlider?
     var musicVolumeSlider: VolumeSlider?
     var removeAdsButton: MenuButton?
+    var hapticsToggleButton: IconButton?
     var restorePurchasesButton: MenuButton?
     var privacyPolicyButton: MenuButton?
     private var isRestoringPurchases = false
@@ -83,20 +84,6 @@ class MenuScene: SKScene {
         // ✅ Only setup essential UI immediately - buttons must be tappable
         backgroundColor = UIColor(white: 0.02, alpha: 1.0)
         setupMenuUI()
-
-        Task {
-            do {
-                print("🔎 Fetching products in MenuScene.didMove")
-                let products = try await Product.products(for: ["dkc.blackHole2025.removeads"])
-                if let first = products.first {
-                    print("✅ FINALLY WORKING: \(first.displayName)")
-                } else {
-                    print("❌ STILL BROKEN")
-                }
-            } catch {
-                print("❌ Error: \(error)")
-            }
-        }
         
         // ✅ Defer ALL node creation after first frame
         run(SKAction.wait(forDuration: 0.016)) { [weak self] in
@@ -945,9 +932,9 @@ class MenuScene: SKScene {
         
         // Calculate content height
         let titleHeight: CGFloat = 40
-        let settingsRowsHeight = 2 * (rowHeight + rowSpacing) // Sound Effects + Music
+        let settingsRowsHeight = (rowHeight * 3) + (rowSpacing * 2) // Sound Effects + Music + Haptics
         let removeAdsButtonHeight: CGFloat = 49
-        let removeAdsSpacing: CGFloat = 20
+        let hapticsToRemoveAdsSpacing: CGFloat = 36
         let closeButtonHeight: CGFloat = 49
         let buttonSpacing: CGFloat = 20
         
@@ -955,7 +942,7 @@ class MenuScene: SKScene {
         let bottomPaddingFromOuterBorder: CGFloat = 14 + 6  // 14pt visible + 6pt outer border extension
         
         let buttonStackHeight = removeAdsButtonHeight * 3 + closeButtonHeight + buttonSpacing * 3
-        let modalHeight = topPadding + titleHeight + titleBottomSpacing + settingsRowsHeight + removeAdsSpacing + buttonStackHeight + bottomPaddingFromOuterBorder
+        let modalHeight = topPadding + titleHeight + titleBottomSpacing + settingsRowsHeight + hapticsToRemoveAdsSpacing + buttonStackHeight + bottomPaddingFromOuterBorder
         
         // Create modal background
         let modalRect = CGRect(x: -modalWidth/2, y: -modalHeight/2, width: modalWidth, height: modalHeight)
@@ -1010,7 +997,15 @@ class MenuScene: SKScene {
             sliderWidth: sliderWidth,
             isMusic: true
         )
-        currentY -= (rowHeight + rowSpacing + removeAdsSpacing)
+        currentY -= (rowHeight + rowSpacing)
+        addHapticsRow(
+            y: currentY,
+            modalWidth: modalWidth,
+            leftPadding: leftPadding,
+            rightPadding: rightPadding,
+            buttonSpacing: buttonSpacing
+        )
+        currentY -= (rowHeight + hapticsToRemoveAdsSpacing)
         
         // Remove Ads button
         let removeAdsButtonWidth = modalWidth - 40
@@ -1206,6 +1201,43 @@ class MenuScene: SKScene {
             musicMuteButton?.updateIcon("music-on")
         }
     }
+
+    private func addHapticsRow(
+        y: CGFloat,
+        modalWidth: CGFloat,
+        leftPadding: CGFloat,
+        rightPadding: CGFloat,
+        buttonSpacing: CGFloat
+    ) {
+        let buttonX = -modalWidth/2 + leftPadding + 20
+        let enabled = HapticManager.shared.areHapticsEnabled()
+        let iconName = enabled ? "haptic" : "haptic-off"
+        let toggleButton = IconButton(iconName: iconName, size: 40, cornerRadius: 5)
+        toggleButton.position = CGPoint(x: buttonX, y: y)
+        toggleButton.zPosition = 1
+        toggleButton.onTap = { [weak self] in
+            self?.toggleHaptics()
+        }
+        hapticsToggleButton = toggleButton
+        settingsModalContainer!.addChild(toggleButton)
+        
+        let labelNode = SKLabelNode(fontNamed: "NDAstroneer-Regular")
+        labelNode.text = "Haptics"
+        labelNode.fontSize = 18
+        labelNode.fontColor = UIColor.white.withAlphaComponent(0.7)
+        labelNode.horizontalAlignmentMode = .left
+        labelNode.verticalAlignmentMode = .center
+        let labelX = buttonX + 20 + buttonSpacing
+        labelNode.position = CGPoint(x: labelX, y: y)
+        labelNode.zPosition = 1
+        settingsModalContainer!.addChild(labelNode)
+    }
+
+    private func toggleHaptics() {
+        let newValue = !HapticManager.shared.areHapticsEnabled()
+        HapticManager.shared.setHapticsEnabled(newValue)
+        hapticsToggleButton?.updateIcon(newValue ? "haptic" : "haptic-off")
+    }
     
     @objc private func handlePurchaseSuccessNotification() {
         // Update button state when purchase succeeds
@@ -1317,6 +1349,7 @@ class MenuScene: SKScene {
             self.soundVolumeSlider = nil
             self.musicVolumeSlider = nil
             self.removeAdsButton = nil
+            self.hapticsToggleButton = nil
             self.restorePurchasesButton = nil
             self.privacyPolicyButton = nil
             self.isRestoringPurchases = false
@@ -1411,6 +1444,14 @@ private class SettingsModalScene: SKScene {
             }
         }
 
+        if let hapticsButton = menuScene.hapticsToggleButton {
+            let buttonLocation = convert(location, to: hapticsButton.parent!)
+            if hapticsButton.contains(point: buttonLocation) {
+                hapticsButton.animatePress()
+                return
+            }
+        }
+
         if let removeButton = menuScene.removeAdsButton {
             let buttonLocation = convert(location, to: removeButton.parent!)
             if removeButton.contains(point: buttonLocation) {
@@ -1478,6 +1519,15 @@ private class SettingsModalScene: SKScene {
             if musicButton.contains(point: buttonLocation) {
                 musicButton.animateRelease()
                 musicButton.onTap?()
+                return
+            }
+        }
+
+        if let hapticsButton = menuScene.hapticsToggleButton {
+            let buttonLocation = convert(location, to: hapticsButton.parent!)
+            if hapticsButton.contains(point: buttonLocation) {
+                hapticsButton.animateRelease()
+                hapticsButton.onTap?()
                 return
             }
         }

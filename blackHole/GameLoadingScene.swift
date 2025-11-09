@@ -11,6 +11,7 @@ class GameLoadingScene: SKScene {
     
     private var loadingLabel: SKLabelNode?
     private var isTransitioning = false
+    private weak var dotsOverlay: LoadingDotsView?
     
     override func didMove(to view: SKView) {
         // CENTER THE COORDINATE SYSTEM
@@ -24,11 +25,11 @@ class GameLoadingScene: SKScene {
         label.fontSize = 24
         label.fontColor = .white
         label.position = CGPoint(x: 0, y: 0) // Anchor point is (0.5, 0.5)
+        label.alpha = 0
         addChild(label)
         self.loadingLabel = label
         
-        // Start the "..." animation immediately
-        animateLoadingText()
+        attachDotsOverlay(text: "LOADING", animated: true)
         
         // Wait 0.01s AFTER loading screen appears before starting heavy work
         // This ensures the loading screen is fully rendered first
@@ -78,11 +79,10 @@ class GameLoadingScene: SKScene {
             guard let self = self else { return }
             
             print("🎮 Initializing haptic feedback generators...")
-            _ = HapticManager.shared
+            HapticManager.shared.warmUpIfNeeded()
             print("✅ Haptics initialized")
             
-            // Update UI to show we're loading textures
-            self.loadingLabel?.text = "LOADING TEXTURES..."
+            // Keep UI in "LOADING" state while assets warm up
             
             // Step 2: Load game textures on background thread (29s operation)
             DispatchQueue.global(qos: .userInitiated).async {
@@ -95,6 +95,7 @@ class GameLoadingScene: SKScene {
                     // Stop animation and set ready text
                     self.loadingLabel?.removeAllActions()
                     self.loadingLabel?.text = "READY"
+                    self.dotsOverlay?.setText("READY", animated: false)
                     
                     // Brief delay before transition
                     self.run(SKAction.wait(forDuration: 0.5)) { [weak self] in
@@ -113,10 +114,32 @@ class GameLoadingScene: SKScene {
         let gameScene = GameScene(size: self.size)
         gameScene.scaleMode = self.scaleMode
         
+        removeDotsOverlay()
         let transition = SKTransition.fade(withDuration: 0.5)
         view?.presentScene(gameScene, transition: transition)
         
         print("✅ GameLoadingScene: Transitioned to GameScene")
+    }
+    
+    private func attachDotsOverlay(text: String, animated: Bool) {
+        guard let skView = view, dotsOverlay == nil else { return }
+        let overlay = LoadingDotsView()
+        skView.addSubview(overlay)
+        NSLayoutConstraint.activate([
+            overlay.centerXAnchor.constraint(equalTo: skView.centerXAnchor),
+            overlay.centerYAnchor.constraint(equalTo: skView.centerYAnchor)
+        ])
+        overlay.setText(text, animated: animated)
+        dotsOverlay = overlay
+    }
+    
+    private func removeDotsOverlay() {
+        dotsOverlay?.removeFromSuperviewAnimated()
+        dotsOverlay = nil
+    }
+    
+    deinit {
+        dotsOverlay?.removeFromSuperviewAnimated()
     }
 }
 
