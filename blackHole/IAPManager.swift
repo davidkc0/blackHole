@@ -12,7 +12,7 @@ class IAPManager {
     static let shared = IAPManager()
     
     // Product ID for Remove Ads (non-consumable)
-    private let removeAdsProductID = "com.yourcompany.blackhole.removeads"  // TODO: Replace with actual product ID
+    private let removeAdsProductID = "dkc.blackHole2025.removeads"
     
     // UserDefaults key for purchase status
     private let hasPurchasedRemoveAdsKey = "hasPurchasedRemoveAds"

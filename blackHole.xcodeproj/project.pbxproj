@@ -31,6 +31,7 @@
 		FE3E1B012E9890D000BE99F7 /* blackHole.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = blackHole.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		FE3E1B1A2E9890D200BE99F7 /* blackHoleTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = blackHoleTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		FE3E1B242E9890D200BE99F7 /* blackHoleUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = blackHoleUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		FE724F3D2EBFEF440009B453 /* Store.storekit */ = {isa = PBXFileReference; lastKnownFileType = text; path = Store.storekit; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -93,6 +94,7 @@
 		FE3E1AF82E9890D000BE99F7 = {
 			isa = PBXGroup;
 			children = (
+				FE724F3D2EBFEF440009B453 /* Store.storekit */,
 				FE3E1B032E9890D000BE99F7 /* blackHole */,
 				FE3E1B1D2E9890D200BE99F7 /* blackHoleTests */,
 				FE3E1B272E9890D200BE99F7 /* blackHoleUITests */,

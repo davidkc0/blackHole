@@ -9,8 +9,10 @@ import SpriteKit
 import GameplayKit
 import CoreImage
 import UIKit
+import StoreKit
 
 class MenuScene: SKScene {
+    
     
     // MARK: - Properties
     
@@ -49,6 +51,7 @@ class MenuScene: SKScene {
     var restorePurchasesButton: MenuButton?
     var privacyPolicyButton: MenuButton?
     private var isRestoringPurchases = false
+    private var isPurchasingRemoveAds = false
     
     // Audio settings state
     private var soundVolume: Float {
@@ -80,6 +83,20 @@ class MenuScene: SKScene {
         // ✅ Only setup essential UI immediately - buttons must be tappable
         backgroundColor = UIColor(white: 0.02, alpha: 1.0)
         setupMenuUI()
+
+        Task {
+            do {
+                print("🔎 Fetching products in MenuScene.didMove")
+                let products = try await Product.products(for: ["dkc.blackHole2025.removeads"])
+                if let first = products.first {
+                    print("✅ FINALLY WORKING: \(first.displayName)")
+                } else {
+                    print("❌ STILL BROKEN")
+                }
+            } catch {
+                print("❌ Error: \(error)")
+            }
+        }
         
         // ✅ Defer ALL node creation after first frame
         run(SKAction.wait(forDuration: 0.016)) { [weak self] in
@@ -129,6 +146,7 @@ class MenuScene: SKScene {
                     return
                 }
             }
+            return
         }
         
         if settingsModalOpen {
@@ -139,6 +157,7 @@ class MenuScene: SKScene {
                     return
                 }
             }
+            return
         }
         
         // Check each button
@@ -176,6 +195,7 @@ class MenuScene: SKScene {
                     return
                 }
             }
+            return
         }
         
         if settingsModalOpen {
@@ -187,6 +207,7 @@ class MenuScene: SKScene {
                     return
                 }
             }
+            return
         }
         
         // Check which button was tapped
@@ -1002,12 +1023,15 @@ class MenuScene: SKScene {
         removeAdsButton.position = CGPoint(x: 0, y: currentY)
         removeAdsButton.zPosition = 1
         
-        // Disable button if already purchased
         if hasPurchased {
             removeAdsButton.alpha = 0.6
             removeAdsButton.isUserInteractionEnabled = false
+            removeAdsButton.onTap = nil
         } else {
+            removeAdsButton.alpha = 1.0
+            removeAdsButton.isUserInteractionEnabled = true
             removeAdsButton.onTap = { [weak self] in
+                print("🛒 REMOVE ADS tapped")
                 self?.handleRemoveAdsPurchase()
             }
         }
@@ -1046,8 +1070,9 @@ class MenuScene: SKScene {
         currentY -= (removeAdsButtonHeight + buttonSpacing)
         
         let buttonWidth = modalWidth - 40
+        let closeButtonY = -modalHeight/2 + (bottomPaddingFromOuterBorder - 6) + closeButtonHeight/2
         settingsCloseButton = MenuButton(text: "CLOSE", size: .medium, fixedWidth: buttonWidth)
-        settingsCloseButton!.position = CGPoint(x: 0, y: currentY)
+        settingsCloseButton!.position = CGPoint(x: 0, y: closeButtonY)
         settingsCloseButton!.zPosition = 1
         settingsModalContainer!.addChild(settingsCloseButton!)
         
@@ -1189,31 +1214,32 @@ class MenuScene: SKScene {
             button.updateText("ADS REMOVED ✓")
             button.alpha = 0.6
             button.isUserInteractionEnabled = false
+            button.onTap = nil
             button.removeAllActions()
         }
     }
     
     private func handleRemoveAdsPurchase() {
         guard let button = removeAdsButton else { return }
+        guard !isPurchasingRemoveAds else { return }
+        isPurchasingRemoveAds = true
         
-        // Show loading state
         let originalText = button.text
         button.updateText("LOADING...")
         button.isUserInteractionEnabled = false
         
-        // Initiate purchase
         Task {
             do {
+                print("🔎 Fetching products in handleRemoveAdsPurchase")
                 let success = try await IAPManager.shared.purchaseRemoveAds()
                 
                 DispatchQueue.main.async { [weak self] in
                     guard let self = self, let button = self.removeAdsButton else { return }
+                    self.isPurchasingRemoveAds = false
                     
                     if success {
-                        // Success - button will be updated by notification handler
                         print("✅ Purchase successful!")
                     } else {
-                        // Failed - restore button
                         button.updateText(originalText.isEmpty ? "REMOVE ADS" : originalText)
                         button.isUserInteractionEnabled = true
                         print("❌ Purchase failed")
@@ -1222,12 +1248,11 @@ class MenuScene: SKScene {
             } catch {
                 DispatchQueue.main.async { [weak self] in
                     guard let self = self, let button = self.removeAdsButton else { return }
+                    self.isPurchasingRemoveAds = false
                     
-                    // Restore button on error
                     button.updateText(originalText.isEmpty ? "REMOVE ADS" : originalText)
                     button.isUserInteractionEnabled = true
                     
-                    // Show error message
                     if let iapError = error as? IAPManager.IAPError {
                         print("❌ Purchase error: \(iapError.localizedDescription)")
                     } else {
@@ -1237,7 +1262,7 @@ class MenuScene: SKScene {
             }
         }
     }
-
+    
     private func handleRestorePurchases(button: MenuButton) {
         guard !isRestoringPurchases else { return }
         isRestoringPurchases = true
@@ -1295,6 +1320,7 @@ class MenuScene: SKScene {
             self.restorePurchasesButton = nil
             self.privacyPolicyButton = nil
             self.isRestoringPurchases = false
+            self.isPurchasingRemoveAds = false
         }
         
         // Fade out and remove modal view
