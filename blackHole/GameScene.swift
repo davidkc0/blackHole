@@ -7,6 +7,7 @@
 
 import SpriteKit
 import GameplayKit
+import UIKit
 
 class ActivePowerUpState {
     var activeType: PowerUpType?
@@ -74,13 +75,12 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     // Grace period tracking
     private var lastCorrectEatTime: TimeInterval = 0
     
-    private var scoreLabel: SKLabelNode!
-    private var gameOverLabel: SKLabelNode?
-    private var finalScoreLabel: SKLabelNode?
-    private var restartLabel: SKLabelNode?
-    private var restartButton: MenuButton?
+    fileprivate var restartButton: MenuButton?
     private var hasTappedRestartButton = false
-    private var returnToMenuButton: MenuButton?
+    fileprivate var returnToMenuButton: MenuButton?
+    fileprivate var gameOverLabel: SKLabelNode?
+    fileprivate var finalScoreLabel: SKLabelNode?
+    private var scoreLabel: SKLabelNode!
     
     private var isGameOver = false
     private var gameOverReason: String?
@@ -127,6 +127,10 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     private var hasShownDangerStarTip = false
     private var hasShownPowerUpTip = false
     private var tipBannerNode: SKNode?
+    
+    private var gameOverBlurView: UIVisualEffectView?
+    private var gameOverOverlayView: SKView?
+    private weak var gameOverOverlayScene: GameOverOverlayScene?
     
     // MARK: - Scene Lifecycle
     
@@ -2177,7 +2181,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         }
     }
     
-    private func formatScore(_ score: Int) -> String {
+    fileprivate func formatScore(_ score: Int) -> String {
         return "\(score)"
     }
     
@@ -2439,138 +2443,37 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         }
         hasShownGameOverUI = true
         
-        // Create modal container
-        let modalContainer = SKNode()
-        modalContainer.name = "gameOverModal"
-        modalContainer.zPosition = 200
-        hudNode.addChild(modalContainer)
+        guard let skView = view else { return }
         
-        // Add semi-transparent dark overlay
-        let overlay = SKSpriteNode(color: .black, size: CGSize(width: 5000, height: 5000))
-        overlay.alpha = 0.6
-        overlay.position = CGPoint.zero
-        overlay.zPosition = -1
-        modalContainer.addChild(overlay)
+        if gameOverBlurView == nil {
+            let blurEffect = UIBlurEffect(style: .dark)
+            let blurView = UIVisualEffectView(effect: blurEffect)
+            blurView.frame = skView.bounds
+            blurView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            blurView.isUserInteractionEnabled = false
+            skView.addSubview(blurView)
+            gameOverBlurView = blurView
+        }
         
-        // Determine if we have a new high score (needed for dynamic modal height)
+        let overlayView = SKView(frame: skView.bounds)
+        overlayView.allowsTransparency = true
+        overlayView.backgroundColor = .clear
+        overlayView.isUserInteractionEnabled = true
+        skView.addSubview(overlayView)
+        gameOverOverlayView = overlayView
+        
+        let overlayScene = GameOverOverlayScene(size: skView.bounds.size)
+        overlayScene.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+        overlayScene.scaleMode = .aspectFill
+        overlayScene.backgroundColor = .clear
+        overlayScene.gameScene = self
+        gameOverOverlayScene = overlayScene
+        overlayView.presentScene(overlayScene)
+
         let hasNewHighScore = GameManager.shared.currentScore == GameManager.shared.highScore && GameManager.shared.highScore > 0
-        
-        // Fixed modal and button width - all three should be the same width
-        let modalWidth: CGFloat = 300
-        let buttonHeight: CGFloat = 49
-        let spacingBetweenButtons: CGFloat = 20
-        let topPadding: CGFloat = 20
-        let bottomPadding: CGFloat = 20
-        
-        // Calculate modal height first based on content
-        var contentHeight: CGFloat = 80  // Game Over label
-        if gameOverReason != nil {
-            contentHeight += 50  // reason line
-        }
-        if hasNewHighScore {
-            contentHeight += 70  // high score line
-        }
-        contentHeight += 60  // final score line
-        
-        // Include space for buttons inside modal
-        let spaceForButtons = buttonHeight + spacingBetweenButtons + buttonHeight + bottomPadding
-        let modalHeight = contentHeight + topPadding + spaceForButtons
-        
-        // Calculate starting position to center content in modal
-        let startY = modalHeight/2 - topPadding - 40  // Start 40pt from top (half of 80pt label height)
-        var currentY = startY
-        
-        // Game Over label
-        gameOverLabel = SKLabelNode(fontNamed: "NDAstroneer-Bold")
-        gameOverLabel!.text = "GAME OVER"
-        gameOverLabel!.fontSize = GameConstants.gameOverFontSize
-        gameOverLabel!.fontColor = .white
-        gameOverLabel!.horizontalAlignmentMode = .center
-        gameOverLabel!.verticalAlignmentMode = .center
-        gameOverLabel!.position = CGPoint(x: 0, y: currentY)
-        gameOverLabel!.zPosition = 1
-        modalContainer.addChild(gameOverLabel!)
-        currentY -= 40
-        
-        // Game over reason label (if applicable)
-        if let reason = gameOverReason {
-            let reasonLabel = SKLabelNode(fontNamed: "NDAstroneer-Regular")
-            reasonLabel.text = reason
-            reasonLabel.fontSize = 20
-            reasonLabel.fontColor = UIColor.white.withAlphaComponent(0.6)
-            reasonLabel.horizontalAlignmentMode = .center
-            reasonLabel.verticalAlignmentMode = .center
-            reasonLabel.position = CGPoint(x: 0, y: currentY)
-            reasonLabel.zPosition = 1
-            modalContainer.addChild(reasonLabel)
-            currentY -= 50
-        }
-        
-        // High score label (if applicable) - before Final Score
-        if hasNewHighScore {
-            let highScoreLabel = SKLabelNode(fontNamed: "NDAstroneer-Regular")
-            highScoreLabel.text = "New High Score!"
-            highScoreLabel.fontSize = 28
-            highScoreLabel.fontColor = UIColor.white.withAlphaComponent(0.6)
-            highScoreLabel.horizontalAlignmentMode = .center
-            highScoreLabel.verticalAlignmentMode = .center
-            highScoreLabel.position = CGPoint(x: 0, y: currentY)
-            highScoreLabel.zPosition = 1
-            modalContainer.addChild(highScoreLabel)
-            
-            // Pulse animation
-            let scaleUp = SKAction.scale(to: 1.1, duration: 0.5)
-            let scaleDown = SKAction.scale(to: 1.0, duration: 0.5)
-            highScoreLabel.run(SKAction.repeatForever(SKAction.sequence([scaleUp, scaleDown])))
-            currentY -= 70
-        }
-        
-        // Final score label
-        finalScoreLabel = SKLabelNode(fontNamed: "NDAstroneer-Bold")
-        finalScoreLabel!.text = "Final Score: \(formatScore(GameManager.shared.currentScore))"
-        finalScoreLabel!.fontSize = GameConstants.finalScoreFontSize
-        finalScoreLabel!.fontColor = .white
-        finalScoreLabel!.horizontalAlignmentMode = .center
-        finalScoreLabel!.verticalAlignmentMode = .center
-        finalScoreLabel!.position = CGPoint(x: 0, y: currentY)
-        finalScoreLabel!.zPosition = 1
-        modalContainer.addChild(finalScoreLabel!)
-        
-        // Create and add modal background
-        let modalRect = CGRect(x: -modalWidth/2, y: -modalHeight/2, width: modalWidth, height: modalHeight)
-        let modalBackground = SKShapeNode(rect: modalRect, cornerRadius: 8)
-        modalBackground.fillColor = UIColor(hex: "#83D6FF").withAlphaComponent(0.24)
-        modalBackground.strokeColor = UIColor(hex: "#83D6FF").withAlphaComponent(0.5)
-        modalBackground.lineWidth = 1.5
-        modalBackground.zPosition = 0
-        modalContainer.addChild(modalBackground)
-        
-        // Position buttons inside modal at the bottom
-        // RETURN TO MENU button sits at bottom with bottomPadding
-        let returnToMenuButtonY = -modalHeight/2 + bottomPadding + buttonHeight/2
-        
-        // RESTART button is spacingBetweenButtons above RETURN TO MENU button
-        let restartButtonY = returnToMenuButtonY + buttonHeight/2 + spacingBetweenButtons + buttonHeight/2
-        
-        // Reduce button width to account for side padding and border margins
-        let buttonWidth = modalWidth - 40  // Leave 20pt padding on each side
-        
-        let restartButton = MenuButton(text: "RESTART", size: .medium, fixedWidth: buttonWidth)
-        restartButton.position = CGPoint(x: 0, y: restartButtonY)
-        restartButton.name = "restartButton"
-        restartButton.zPosition = 1
-        modalContainer.addChild(restartButton)
-        self.restartButton = restartButton
-        
-        let returnToMenuButton = MenuButton(text: "RETURN TO MENU", size: .medium, fixedWidth: buttonWidth)
-        returnToMenuButton.position = CGPoint(x: 0, y: returnToMenuButtonY)
-        returnToMenuButton.name = "returnToMenuButton"
-        returnToMenuButton.zPosition = 1
-        modalContainer.addChild(returnToMenuButton)
-        self.returnToMenuButton = returnToMenuButton
-        
-        // Modal already contains buttons, so it's self-contained and centered
-        // modalContainer is already at default position (0, 0) which centers on screen
+        overlayScene.configure(reason: gameOverReason, finalScore: GameManager.shared.currentScore, hasNewHighScore: hasNewHighScore)
+        self.restartButton = overlayScene.restartButton
+        self.returnToMenuButton = overlayScene.returnToMenuButton
     }
     
     // MARK: - Pause System
@@ -2837,9 +2740,10 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         hudNode.addChild(shrinkIndicatorFill!)
     }
     
-    private func returnToMenu() {
+    fileprivate func returnToMenu() {
         // Reset game state before returning to menu
         GameManager.shared.resetScore()
+        removeGameOverUI()
         
         // Create menu scene
         let menuScene = MenuScene(size: size)
@@ -2849,7 +2753,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         view?.presentScene(menuScene, transition: SKTransition.fade(withDuration: 0.5))
     }
     
-    private func restartGame() {
+    fileprivate func restartGame() {
         // Clean up game over modal
         hudNode.childNode(withName: "gameOverModal")?.removeFromParent()
         restartButton = nil
@@ -2878,6 +2782,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         starSpawnTimer?.invalidate()
         colorChangeTimer?.invalidate()
         colorChangeWarningTimer?.invalidate()
+        NotificationCenter.default.removeObserver(self)
+        gameOverBlurView?.removeFromSuperview()
+        gameOverOverlayView?.removeFromSuperview()
     }
     
     private func captureColorChangeTimerState() {
@@ -2946,5 +2853,176 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         }
         remainingColorChangeTime = nil
         remainingWarningTime = nil
+    }
+    
+    func removeGameOverUI() {
+        hudNode.childNode(withName: "gameOverModal")?.removeFromParent()
+        gameOverBlurView?.removeFromSuperview()
+        gameOverBlurView = nil
+        gameOverOverlayView?.removeFromSuperview()
+        gameOverOverlayView = nil
+        gameOverOverlayScene = nil
+        gameOverLabel = nil
+        finalScoreLabel = nil
+        restartButton = nil
+        returnToMenuButton = nil
+    }
+}
+
+private class GameOverOverlayScene: SKScene {
+    weak var gameScene: GameScene?
+    var restartButton: MenuButton?
+    var returnToMenuButton: MenuButton?
+    private var modalContainer: SKNode?
+
+    func configure(reason: String?, finalScore: Int, hasNewHighScore: Bool) {
+        removeAllChildren()
+        let container = SKNode()
+        container.name = "gameOverModal"
+        container.zPosition = 200
+        addChild(container)
+        modalContainer = container
+
+        let modalWidth: CGFloat = 300
+        let buttonHeight: CGFloat = 49
+        let spacingBetweenButtons: CGFloat = 20
+        let topPadding: CGFloat = 20
+        let bottomPadding: CGFloat = 20
+
+        var contentHeight: CGFloat = 80
+        if reason != nil { contentHeight += 50 }
+        if hasNewHighScore { contentHeight += 70 }
+        contentHeight += 60
+
+        let spaceForButtons = buttonHeight + spacingBetweenButtons + buttonHeight + bottomPadding
+        let modalHeight = contentHeight + topPadding + spaceForButtons
+
+        let modalRect = CGRect(x: -modalWidth/2, y: -modalHeight/2, width: modalWidth, height: modalHeight)
+        let modalBackground = SKShapeNode(rect: modalRect, cornerRadius: 8)
+        modalBackground.fillColor = UIColor(hex: "#83D6FF").withAlphaComponent(0.24)
+        modalBackground.strokeColor = UIColor(hex: "#83D6FF").withAlphaComponent(0.5)
+        modalBackground.lineWidth = 1.5
+        modalBackground.zPosition = 0
+        container.addChild(modalBackground)
+
+        var currentY = modalHeight/2 - topPadding - 40
+
+        let titleLabel = SKLabelNode(fontNamed: "NDAstroneer-Bold")
+        titleLabel.text = "GAME OVER"
+        titleLabel.fontSize = GameConstants.gameOverFontSize
+        titleLabel.fontColor = .white
+        titleLabel.horizontalAlignmentMode = .center
+        titleLabel.verticalAlignmentMode = .center
+        titleLabel.position = CGPoint(x: 0, y: currentY)
+        titleLabel.zPosition = 1
+        container.addChild(titleLabel)
+        gameScene?.gameOverLabel = titleLabel
+        currentY -= 40
+
+        if let reason = reason {
+            let reasonLabel = SKLabelNode(fontNamed: "NDAstroneer-Regular")
+            reasonLabel.text = reason
+            reasonLabel.fontSize = 20
+            reasonLabel.fontColor = UIColor.white.withAlphaComponent(0.6)
+            reasonLabel.horizontalAlignmentMode = .center
+            reasonLabel.verticalAlignmentMode = .center
+            reasonLabel.position = CGPoint(x: 0, y: currentY)
+            reasonLabel.zPosition = 1
+            container.addChild(reasonLabel)
+            currentY -= 50
+        }
+
+        if hasNewHighScore {
+            let highScoreLabel = SKLabelNode(fontNamed: "NDAstroneer-Regular")
+            highScoreLabel.text = "New High Score!"
+            highScoreLabel.fontSize = 28
+            highScoreLabel.fontColor = UIColor.white.withAlphaComponent(0.6)
+            highScoreLabel.horizontalAlignmentMode = .center
+            highScoreLabel.verticalAlignmentMode = .center
+            highScoreLabel.position = CGPoint(x: 0, y: currentY)
+            highScoreLabel.zPosition = 1
+            container.addChild(highScoreLabel)
+
+            let scaleUp = SKAction.scale(to: 1.1, duration: 0.5)
+            let scaleDown = SKAction.scale(to: 1.0, duration: 0.5)
+            highScoreLabel.run(SKAction.repeatForever(SKAction.sequence([scaleUp, scaleDown])))
+            currentY -= 70
+        }
+
+        let finalScoreLabel = SKLabelNode(fontNamed: "NDAstroneer-Bold")
+        let formattedScore = gameScene?.formatScore(finalScore) ?? String(finalScore)
+        finalScoreLabel.text = "Final Score: \(formattedScore)"
+        finalScoreLabel.fontSize = GameConstants.finalScoreFontSize
+        finalScoreLabel.fontColor = .white
+        finalScoreLabel.horizontalAlignmentMode = .center
+        finalScoreLabel.verticalAlignmentMode = .center
+        finalScoreLabel.position = CGPoint(x: 0, y: currentY)
+        finalScoreLabel.zPosition = 1
+        container.addChild(finalScoreLabel)
+        gameScene?.finalScoreLabel = finalScoreLabel
+
+        let buttonWidth = modalWidth - 40
+        let returnButtonY = -modalHeight/2 + bottomPadding + buttonHeight/2
+        let restartButtonY = returnButtonY + buttonHeight/2 + spacingBetweenButtons + buttonHeight/2
+
+        let restart = MenuButton(text: "RESTART", size: .medium, fixedWidth: buttonWidth)
+        restart.position = CGPoint(x: 0, y: restartButtonY)
+        restart.name = "restartButton"
+        restart.zPosition = 1
+        container.addChild(restart)
+        restartButton = restart
+
+        let returnButton = MenuButton(text: "RETURN TO MENU", size: .medium, fixedWidth: buttonWidth)
+        returnButton.position = CGPoint(x: 0, y: returnButtonY)
+        returnButton.name = "returnToMenuButton"
+        returnButton.zPosition = 1
+        container.addChild(returnButton)
+        returnToMenuButton = returnButton
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard let touch = touches.first else { return }
+        let location = touch.location(in: self)
+
+        if let restartButton = restartButton {
+            let buttonLocation = convert(location, to: restartButton.parent!)
+            if restartButton.contains(point: buttonLocation) {
+                restartButton.animatePress()
+            }
+        }
+
+        if let returnButton = returnToMenuButton {
+            let buttonLocation = convert(location, to: returnButton.parent!)
+            if returnButton.contains(point: buttonLocation) {
+                returnButton.animatePress()
+            }
+        }
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard let touch = touches.first else { return }
+        let location = touch.location(in: self)
+
+        if let restartButton = restartButton {
+            let buttonLocation = convert(location, to: restartButton.parent!)
+            if restartButton.contains(point: buttonLocation) {
+                restartButton.animateRelease()
+                gameScene?.restartGame()
+                return
+            } else {
+                restartButton.animateRelease()
+            }
+        }
+
+        if let returnButton = returnToMenuButton {
+            let buttonLocation = convert(location, to: returnButton.parent!)
+            if returnButton.contains(point: buttonLocation) {
+                returnButton.animateRelease()
+                gameScene?.returnToMenu()
+                return
+            } else {
+                returnButton.animateRelease()
+            }
+        }
     }
 }
