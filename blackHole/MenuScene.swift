@@ -112,7 +112,8 @@ class MenuScene: SKScene {
         // ❌ Avoid touching AdManager here; we'll load later when game starts                                                                               
         // _ = AdManager.shared  // remove
         
-        // Play menu music
+        // Switch to menu music and play (ensures correct buffers are used and music starts)
+        AudioManager.shared.switchToMenuMusic()
         AudioManager.shared.playBackgroundMusic()
     }
     
@@ -643,7 +644,7 @@ class MenuScene: SKScene {
         isTransitioning = true
         
         // Play selection sound
-        AudioManager.shared.playCorrectSound()
+        AudioManager.shared.playCorrectSound(on: self)
         
         // Transition immediately - no delay to show loading screen instantly
         transitionToGame()
@@ -664,7 +665,7 @@ class MenuScene: SKScene {
     
     private func showComingSoon() {
         // Play sound
-        AudioManager.shared.playPowerUpSound()
+        AudioManager.shared.playPowerUpSound(on: self)
         
         // Show temporary message
         let message = SKLabelNode(fontNamed: "NDAstroneer-Bold")

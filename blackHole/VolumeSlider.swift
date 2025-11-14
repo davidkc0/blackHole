@@ -51,6 +51,7 @@ class VolumeSlider: SKNode {
         thumb.zPosition = 2
         
         super.init()
+        isUserInteractionEnabled = true
         
         addChild(track)
         addChild(fill)

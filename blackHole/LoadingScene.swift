@@ -16,6 +16,7 @@ class LoadingScene: SKScene {
     
     private var isAdMobReady = false
     private var isMenuTexturesReady = false
+    private var isMenuMusicReady = false
     private var isTransitioning = false
     
     override func didMove(to view: SKView) {
@@ -59,6 +60,14 @@ class LoadingScene: SKScene {
             self,
             selector: #selector(handleMenuTexturesReady),
             name: NSNotification.Name("MenuBootstrapReady"), // From AppDelegate
+            object: nil
+        )
+        
+        // Add observer for menu music
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleMenuMusicReady),
+            name: NSNotification.Name("MenuMusicReady"),
             object: nil
         )
     }
@@ -106,9 +115,31 @@ class LoadingScene: SKScene {
         checkIfReadyToProceed()
     }
     
+    @objc private func handleMenuMusicReady() {
+        print("✅ LoadingScene: CHECKLIST Item 3 (Menu Music) is READY.")
+        isMenuMusicReady = true
+        checkIfReadyToProceed()
+    }
+    
     private func checkIfReadyToProceed() {
-        // 4. Check if both items are checked off AND we're not already loading
-        guard isAdMobReady, isMenuTexturesReady, !isTransitioning else {
+        // If AdMob and textures are ready, start menu music loading if not already started
+        if isAdMobReady && isMenuTexturesReady && !isMenuMusicReady {
+            // Start menu music preloading (only once)
+            print("🎵 LoadingScene: Preloading menu music...")
+            DispatchQueue.global(qos: .userInitiated).async {
+                AudioManager.shared.preloadMenuMusic()
+                
+                // Initialize audio engine on main thread (fast)
+                DispatchQueue.main.async {
+                    AudioManager.shared.initializeAudioEngine()
+                    NotificationCenter.default.post(name: NSNotification.Name("MenuMusicReady"), object: nil)
+                }
+            }
+            return // Wait for menu music ready notification
+        }
+        
+        // 4. Check if all items are checked off AND we're not already transitioning
+        guard isAdMobReady, isMenuTexturesReady, isMenuMusicReady, !isTransitioning else {
             return
         }
         
@@ -122,7 +153,7 @@ class LoadingScene: SKScene {
             // Skip ad preloading entirely, go straight to menu scene creation
             proceedToMenuScene()
         } else {
-            print("🚀 LoadingScene: SDK and Textures ready. Now pre-loading ad (8s block)...")
+            print("🚀 LoadingScene: SDK, Textures, and Music ready. Now pre-loading ad (8s block)...")
             
             // 5. STEP 1: Load the ad FIRST. All the heavy lifting must wait for this.
             AdManager.shared.preloadFirstAd { [weak self] success in

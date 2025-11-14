@@ -84,20 +84,38 @@ class GameLoadingScene: SKScene {
             
             // Keep UI in "LOADING" state while assets warm up
             
-            // Step 2: Load game textures on background thread (29s operation)
+            // Step 2: Load game textures, game music, and sound effects in parallel (background threads)
             DispatchQueue.global(qos: .userInitiated).async {
                 print("🎮 Preloading game textures (29s operation)...")
                 TextureCache.shared.preloadAllTextures()
                 print("✅ Game textures preloaded")
                 
-                // Step 3: Return to main thread for transition
+                // Load game music (if different from menu music) OR reuse menu music
+                print("🎵 Preloading game music...")
+                AudioManager.shared.preloadGameMusic()
+                print("✅ Game music preloaded")
+                
+                // Load sound effects
+                print("🔊 Preloading sound effects...")
+                AudioManager.shared.preloadSoundEffects()
+                print("✅ Sound effects preloaded")
+                
+                // Step 3: Initialize audio engine if not already initialized (main thread - fast, ~10-50ms)
                 DispatchQueue.main.async {
+                    if !AudioManager.shared.isAudioEngineInitialized {
+                        AudioManager.shared.initializeAudioEngine()
+                    }
+                    
+                    // Step 4: Preload sound effects into SpriteKit cache (main thread - uses SKScene)
+                    // This prevents stutter on first sound effect playback
+                    AudioManager.shared.preloadSoundEffectsIntoCache(on: self)
+                    
                     // Stop animation and set ready text
                     self.loadingLabel?.removeAllActions()
                     self.loadingLabel?.text = "READY"
                     self.dotsOverlay?.setText("READY", animated: false)
                     
-                    // Brief delay before transition
+                    // Brief delay before transition (allow time for sound cache to populate)
                     self.run(SKAction.wait(forDuration: 0.5)) { [weak self] in
                         guard let self = self else { return }
                         self.transitionToGame()

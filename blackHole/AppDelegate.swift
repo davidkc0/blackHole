@@ -7,6 +7,7 @@
 
 import UIKit
 import GoogleMobileAds
+import AVFoundation
 
 @main
 class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -15,6 +16,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {                                                                                           
         print("🚀 App launching - staged initialization...")
+        
+        // Configure audio session
+        configureAudioSession()
         
         // Initialize IAPManager and restore purchases (async, non-blocking)
         Task {
@@ -66,6 +70,18 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // This reduces initial loading time from ~45s to ~15-20s
         
         return true
+    }
+    
+    private func configureAudioSession() {
+        do {
+            let audioSession = AVAudioSession.sharedInstance()
+            // Use .ambient category so music mixes with other audio and respects silent switch
+            try audioSession.setCategory(.ambient, mode: .default, options: [])
+            try audioSession.setActive(true)
+            print("✅ AppDelegate: Audio session configured (.ambient category)")
+        } catch {
+            print("⚠️ AppDelegate: Failed to configure audio session: \(error)")
+        }
     }
 
     func applicationWillResignActive(_ application: UIApplication) {

@@ -74,6 +74,8 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     
     // Grace period tracking
     private var lastCorrectEatTime: TimeInterval = 0
+    private var gameStartTime: TimeInterval = 0
+    private let SOUND_GRACE_PERIOD: TimeInterval = 1.0  // 1 second grace period for all sounds at game start
     
     fileprivate var restartButton: MenuButton?
     private var hasTappedRestartButton = false
@@ -142,6 +144,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         
         // Track session start time for stats
         sessionStartTime = CACurrentMediaTime()
+        gameStartTime = CACurrentMediaTime()  // Track game start for sound grace period
         
         setupScene()
         setupCamera()
@@ -161,6 +164,15 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             self?.checkAndShowMovementTip()
         }
+        
+        // Enable proximity sounds after 5 second grace period
+        AudioManager.shared.enableProximitySounds()
+        
+        // Switch to game music (5 layers - all start playing, only layer 1 unmuted)
+        AudioManager.shared.switchToGameMusic()
+        
+        // Initialize music layers for starting size (Phase 1)
+        AudioManager.shared.updateMusicLayersForSize(blackHole.currentDiameter)
     }
     
     private func setupPowerUpSystem() {
@@ -1099,8 +1111,67 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             let multiplier = GameManager.shared.getScoreMultiplier(blackHoleDiameter: blackHole.currentDiameter)
             let points = star.starType.basePoints * multiplier
             GameManager.shared.addScore(points)
-            AudioManager.shared.playCorrectSound()
-            AudioManager.shared.playGrowSound()
+            
+            // Debug: Log size stages as black hole grows (matches star spawning phases)
+            let currentSize = blackHole.currentDiameter
+            let previousSize = beforeSize
+            
+            // Determine current phase
+            let currentPhase: Int
+            if currentSize < 48 {
+                currentPhase = 1
+            } else if currentSize < 80 {
+                currentPhase = 2
+            } else if currentSize < 140 {
+                currentPhase = 3
+            } else if currentSize < 320 {
+                currentPhase = 4
+            } else {
+                currentPhase = 5
+            }
+            
+            // Determine previous phase
+            let previousPhase: Int
+            if previousSize < 48 {
+                previousPhase = 1
+            } else if previousSize < 80 {
+                previousPhase = 2
+            } else if previousSize < 140 {
+                previousPhase = 3
+            } else if previousSize < 320 {
+                previousPhase = 4
+            } else {
+                previousPhase = 5
+            }
+            
+            // Log phase change and update music layers
+            if currentPhase != previousPhase {
+                if currentPhase > previousPhase {
+                    print("📊 SIZE PHASE: Black hole advanced to phase \(currentPhase) (\(String(format: "%.0f", currentSize))pt)")
+                } else {
+                    print("📊 SIZE PHASE: Black hole regressed to phase \(currentPhase) (\(String(format: "%.0f", currentSize))pt)")
+                }
+                
+                // Update music layers based on new phase (handles both growth and shrinkage)
+                AudioManager.shared.updateMusicLayersForSize(currentSize)
+            }
+            // Check milestone thresholds
+            if beforeSize < 600 && currentSize >= 600 {
+                print("🎯 MILESTONE: Supermassive tier reached! (600pt)")
+            }
+            if beforeSize < 1000 && currentSize >= 1000 {
+                print("🎯 MILESTONE: Cosmic tier reached! (1000pt)")
+            }
+            if beforeSize < 2000 && currentSize >= 2000 {
+                print("🎯 MILESTONE: Legendary tier reached! (2000pt)")
+            }
+            
+            // Check grace period before playing sounds
+            let currentTime = CACurrentMediaTime()
+            if currentTime - gameStartTime >= SOUND_GRACE_PERIOD {
+                AudioManager.shared.playCorrectSound(on: self)
+                AudioManager.shared.playGrowSound(on: self)
+            }
             
             // Haptic feedback for correct consumption
             HapticManager.shared.playCorrectStarHaptic(starSize: star.size.width)
@@ -1125,10 +1196,59 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
                 
                 print("🔻 Wrong color - shrinking by \(String(format: "%.2f", adjustedMultiplier))x (size: \(String(format: "%.0f", size))pt)")
                 
+                let beforeSize = blackHole.currentDiameter
                 blackHole.shrinkByMultiplier(adjustedMultiplier)
                 GameManager.shared.addScore(GameConstants.wrongColorPenalty)
-                AudioManager.shared.playWrongSound()
-                AudioManager.shared.playShrinkSound()
+                
+                // Check for phase change (size regression)
+                let currentSize = blackHole.currentDiameter
+                let previousSize = beforeSize
+                
+                // Determine current phase
+                let currentPhase: Int
+                if currentSize < 48 {
+                    currentPhase = 1
+                } else if currentSize < 80 {
+                    currentPhase = 2
+                } else if currentSize < 140 {
+                    currentPhase = 3
+                } else if currentSize < 320 {
+                    currentPhase = 4
+                } else {
+                    currentPhase = 5
+                }
+                
+                // Determine previous phase
+                let previousPhase: Int
+                if previousSize < 48 {
+                    previousPhase = 1
+                } else if previousSize < 80 {
+                    previousPhase = 2
+                } else if previousSize < 140 {
+                    previousPhase = 3
+                } else if previousSize < 320 {
+                    previousPhase = 4
+                } else {
+                    previousPhase = 5
+                }
+                
+                // Log phase change and update music layers
+                if currentPhase != previousPhase {
+                    if currentPhase < previousPhase {
+                        print("📊 SIZE PHASE: Black hole regressed to phase \(currentPhase) (\(String(format: "%.0f", currentSize))pt)")
+                    } else {
+                        print("📊 SIZE PHASE: Black hole advanced to phase \(currentPhase) (\(String(format: "%.0f", currentSize))pt)")
+                    }
+                    
+                    // Update music layers based on new phase (handles both growth and shrinkage)
+                    AudioManager.shared.updateMusicLayersForSize(currentSize)
+                }
+                
+                // Check grace period before playing sounds
+                if currentTime - gameStartTime >= SOUND_GRACE_PERIOD {
+                    AudioManager.shared.playWrongSound(on: self)
+                    AudioManager.shared.playShrinkSound(on: self)
+                }
                 
                 // Haptic feedback for wrong consumption
                 let isInDangerZone = blackHole.currentDiameter < 40
@@ -1238,8 +1358,10 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         // Show merge effect
         showMergeEffect(at: largerStar.position, color1: largerStar.starType.uiColor, color2: smallerStar.starType.uiColor)
         
-        // Play sound
-        AudioManager.shared.playMergeSound()
+        // Play sound only if merge is close to player (in camera view) and grace period has passed
+        if isInCameraView(largerStar.position) && currentTime - gameStartTime >= SOUND_GRACE_PERIOD {
+            AudioManager.shared.playMergeSound(on: self)
+        }
         
         // Remove original stars
         stars.removeAll { $0 == star1 || $0 == star2 }
@@ -1470,7 +1592,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         activatePowerUp(type: powerUp.type)
         
         // Play sound
-        AudioManager.shared.playPowerUpCollectSound()
+        AudioManager.shared.playPowerUpCollectSound(on: self)
         
         // Haptic feedback for power-up
         HapticManager.shared.playPowerUpHaptic(type: powerUp.type)
@@ -1481,6 +1603,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     private func activatePowerUp(type: PowerUpType) {
         let currentTime = CACurrentMediaTime()
         activePowerUp.activate(type: type, currentTime: currentTime)
+        
+        // Start power-up loop sound
+        AudioManager.shared.startPowerUpLoopSound(on: self)
         
         // Apply immediate effects
         switch type {
@@ -1513,10 +1638,17 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             print("🌈 Rainbow photon ring animation stopped and restored to target color")
         }
         
+        // Stop power-up loop sound FIRST (synchronously) before playing expire sound
+        AudioManager.shared.stopPowerUpLoopSound()
+        
         // Deactivate the power-up AFTER handling the expiration
         activePowerUp.deactivate()
         
-        AudioManager.shared.playPowerUpExpireSound()
+        // Add a small delay to ensure loop sound is fully stopped before playing expire sound
+        run(SKAction.wait(forDuration: 0.1)) { [weak self] in
+            guard let self = self else { return }
+            AudioManager.shared.playPowerUpExpireSound(on: self)
+        }
     }
     
     private func freezeAllStars() {
@@ -2128,12 +2260,14 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
 
                 if let starName = star.name {
                     HapticManager.shared.startDangerProximityHaptic(starID: starName, distance: edgeDistance)
+                    AudioManager.shared.startProximitySound(starID: starName, distance: edgeDistance, on: self)
                 }
             } else {
                 star.hideWarningGlow()
 
                 if let starName = star.name {
                     HapticManager.shared.stopDangerProximityHaptic(starID: starName)
+                    AudioManager.shared.stopProximitySound(starID: starName)
                 }
             }
         }
@@ -2396,6 +2530,13 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         // Stop all danger proximity haptics
         HapticManager.shared.stopAllDangerProximityHaptics()
         
+        // Stop all proximity sounds
+        AudioManager.shared.stopAllProximitySounds()
+        
+        // Stop all music and other sounds BEFORE ad (game over sound plays last)
+        AudioManager.shared.stopBackgroundMusic()
+        AudioManager.shared.stopPowerUpLoopSound()
+        
         // Stop color change warning if active
         stopColorChangeWarning()
         
@@ -2406,12 +2547,13 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         // Stop physics
         physicsWorld.speed = 0
         
-        // Play sound
-        AudioManager.shared.playGameOverSound()
+        // Play game over sound (last sound before ad)
+        AudioManager.shared.playGameOverSound(on: self)
         
-                // Increment game over counter
+        // Increment game over counter
         GameManager.shared.incrementGameOverCount()
         
+        // Wait a brief moment for game over sound to start, then show ad
         // Check if we should show an ad
         if GameManager.shared.shouldShowAd() {
             guard let viewController = self.view?.window?.rootViewController else {
@@ -2741,6 +2883,10 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     }
     
     fileprivate func returnToMenu() {
+        // Stop game music and switch to menu music
+        AudioManager.shared.stopBackgroundMusic()
+        AudioManager.shared.switchToMenuMusic()
+        
         // Reset game state before returning to menu
         GameManager.shared.resetScore()
         removeGameOverUI()
@@ -2761,6 +2907,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         
         // Reset game manager
         GameManager.shared.resetScore()
+        
+        // Ensure music is ready for new game (switchToGameMusic will start it in didMove)
+        // Don't stop music here - let it continue or restart in new scene
         
         // Create new scene programmatically
         let newScene = GameScene(size: size)
