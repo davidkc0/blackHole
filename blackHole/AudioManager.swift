@@ -34,20 +34,33 @@ class AudioManager {
     private var layerVolumes: [Int: Float] = [:]
     private var currentBlackHoleSize: CGFloat = 0.0 // Track current size for phase-based volume control
     
-    // Sound Effects (stored as file paths for SKAction.playSoundFileNamed)
+    // Sound Effects (stored as file paths, plus SKAudioNode pools for volume control)
     private var soundEffectFilePaths: [String: String] = [:]
+    
+    private struct SFXNodePool {
+        var nodes: [SKAudioNode]
+        var nextIndex: Int = 0
+        
+        mutating func nextNode() -> SKAudioNode {
+            let node = nodes[nextIndex]
+            nextIndex = (nextIndex + 1) % nodes.count
+            return node
+        }
+    }
+    
+    private var sfxNodePools: [String: SFXNodePool] = [:]
+    private let sfxPoolSize = 3
     
     // Proximity Sound Management
     private var proximitySoundTimers: [String: Timer] = [:]
     private var lastProximitySoundTime: TimeInterval = 0
     private var proximitySoundScenes: [String: SKScene] = [:] // Store scene reference for each proximity sound
     private var proximitySoundDistances: [String: CGFloat] = [:] // Track distance per star to optimize updates
-    private var proximitySoundNodes: [String: SKNode] = [:] // Store node for each proximity sound (for volume control)
     private var proximitySoundEnabledTime: TimeInterval? // Time when proximity sounds become enabled
     
     // Power-up Loop Sound Management
-    private var powerUpLoopNode: SKNode?
-    private var powerUpLoopScene: SKScene?
+    private var powerUpLoopAudioNode: SKAudioNode?
+    private weak var powerUpLoopScene: SKScene?
     
     // Volume and Mute State
     private var musicVolume: Float = 1.0
@@ -194,54 +207,39 @@ class AudioManager {
         print("✅ AudioManager: Loaded \(soundEffectFilePaths.count)/10 sound effect paths")
     }
     
+    @discardableResult
+    private func ensureSFXNodePool(for key: String, filePath: String) -> Bool {
+        guard sfxNodePools[key] == nil else {
+            return false
+        }
+        
+        var nodes: [SKAudioNode] = []
+        for _ in 0..<sfxPoolSize {
+            let node = SKAudioNode(fileNamed: filePath)
+            node.autoplayLooped = false
+            node.isPositional = false
+            node.run(SKAction.changeVolume(to: soundVolume, duration: 0.0))
+            nodes.append(node)
+        }
+        
+        sfxNodePools[key] = SFXNodePool(nodes: nodes, nextIndex: 0)
+        return true
+    }
+    
     /// Preloads sound effects by loading them into memory (silently)
     /// This helps prevent stutter on first use, but doesn't fully warm SpriteKit's cache
     /// Note: SKAction.playSoundFileNamed can't be muted, so we load files into memory instead
     func preloadSoundEffectsIntoCache(on scene: SKScene) {
-        print("🔊 AudioManager: Preloading sound effects into memory...")
-        
-        // Load each sound file into memory using AVAudioPlayer (silent load, no playback)
-        // This preloads the files into iOS audio cache without audible playback
-        var preloadedCount = 0
-        let totalSounds = soundEffectFilePaths.count
-        
-        guard totalSounds > 0 else {
-            return
-        }
+        print("🔊 AudioManager: Preparing sound effect nodes...")
+        var createdPools = 0
         
         for (key, filePath) in soundEffectFilePaths {
-            // File path can be "fileName.ext" or "SFX/fileName.ext"
-            let pathComponents = filePath.components(separatedBy: "/")
-            let fileNameWithExt = pathComponents.last ?? filePath
-            let subdirectory = pathComponents.count > 1 ? pathComponents.first : nil
-            
-            let fileName = (fileNameWithExt as NSString).deletingPathExtension
-            let fileExtension = (fileNameWithExt as NSString).pathExtension
-            
-            // Try to load the file as an AVAudioPlayer (silent load)
-            var url: URL?
-            if let subdir = subdirectory {
-                url = Bundle.main.url(forResource: fileName, withExtension: fileExtension, subdirectory: subdir)
-            } else {
-                url = Bundle.main.url(forResource: fileName, withExtension: fileExtension)
-            }
-            
-            if let fileURL = url {
-                do {
-                    // Create AVAudioPlayer but don't play - just loads file into memory
-                    let player = try AVAudioPlayer(contentsOf: fileURL)
-                    _ = player  // Keep reference briefly to ensure file is loaded
-                    preloadedCount += 1
-                } catch {
-                    print("⚠️ AudioManager: Failed to preload sound '\(key)': \(error)")
-                }
-            } else {
-                print("⚠️ AudioManager: Could not find URL for sound '\(key)': \(filePath)")
+            if ensureSFXNodePool(for: key, filePath: filePath) {
+                createdPools += 1
             }
         }
         
-        print("✅ AudioManager: Preloaded \(preloadedCount)/\(totalSounds) sound effects into memory")
-        print("ℹ️ Note: SpriteKit cache will still warm on first actual playback, but files are in memory")
+        print("✅ AudioManager: Prepared \(createdPools)/\(soundEffectFilePaths.count) sound effect pools")
     }
     
     // MARK: - Audio Engine Initialization
@@ -657,6 +655,7 @@ class AudioManager {
         
         // Update mute state based on volume
         isSoundMuted = (soundVolume == 0.0)
+        updateAllSFXNodeVolumes()
         
         // Note: SKAction.playSoundFileNamed() respects volume settings automatically
         // No need to update individual players since we're using SpriteKit actions
@@ -691,6 +690,8 @@ class AudioManager {
         if muted {
             stopAllProximitySounds()
         }
+        
+        updateAllSFXNodeVolumes()
         
         // Note: SKAction.playSoundFileNamed() respects mute state via isSoundMuted flag
         // Each play method checks isSoundMuted before playing
@@ -737,54 +738,41 @@ class AudioManager {
     // MARK: - Power-up Loop Sound
     
     func startPowerUpLoopSound(on scene: SKScene) {
-        guard !isSoundMuted && soundVolume > 0.0 else {
-            return
-        }
-        
+        guard !isSoundMuted && soundVolume > 0.0 else { return }
         guard let filePath = soundEffectFilePaths["powerup"] else {
             print("⚠️ AudioManager: Power-up loop sound file not found")
             return
         }
         
-        // Stop any existing loop
-        stopPowerUpLoopSound()
+        let loopNode: SKAudioNode
+        if let existingNode = powerUpLoopAudioNode {
+            loopNode = existingNode
+        } else {
+            loopNode = SKAudioNode(fileNamed: filePath)
+            loopNode.autoplayLooped = true
+            loopNode.isPositional = false
+            powerUpLoopAudioNode = loopNode
+        }
         
         powerUpLoopScene = scene
         
-        // Create a node for the loop sound
-        let loopNode = SKNode()
-        loopNode.isHidden = true
-        scene.addChild(loopNode)
-        powerUpLoopNode = loopNode
+        if loopNode.parent !== scene {
+            loopNode.removeFromParent()
+            scene.addChild(loopNode)
+        }
         
-        // Play sound in a loop (using repeatForever)
-        let soundAction = SKAction.playSoundFileNamed(filePath, waitForCompletion: true)
-        let loop = SKAction.repeatForever(soundAction)
-        loopNode.run(loop)
+        loopNode.run(SKAction.changeVolume(to: soundVolume, duration: 0.0))
+        loopNode.run(SKAction.play())
         
         print("🔊 AudioManager: Power-up loop sound started")
     }
     
     func stopPowerUpLoopSound() {
-        // Stop all actions first (this will stop the loop)
-        powerUpLoopNode?.removeAllActions()
-        
-        // Wait a frame to ensure actions are stopped before removing node
-        // Remove node synchronously from the scene to prevent sound from continuing
-        if let node = powerUpLoopNode, let scene = powerUpLoopScene {
-            // Remove from scene immediately to stop playback
-            node.removeFromParent()
-            
-            // Clear references
-            powerUpLoopNode = nil
-            powerUpLoopScene = nil
-            
-            print("🔊 AudioManager: Power-up loop sound stopped")
-        } else {
-            // Clear references even if node/scene are nil
-            powerUpLoopNode = nil
-            powerUpLoopScene = nil
-        }
+        guard let loopNode = powerUpLoopAudioNode else { return }
+        loopNode.run(SKAction.stop())
+        loopNode.removeFromParent()
+        powerUpLoopScene = nil
+        print("🔊 AudioManager: Power-up loop sound stopped")
     }
     
     // MARK: - Proximity Sound
@@ -796,7 +784,6 @@ class AudioManager {
     }
     
     func startProximitySound(starID: String, distance: CGFloat, on scene: SKScene) {
-        // Check if proximity sounds are enabled (5 second grace period after game start)
         if let enabledTime = proximitySoundEnabledTime {
             let currentTime = CACurrentMediaTime()
             let gracePeriod: TimeInterval = 5.0
@@ -812,112 +799,117 @@ class AudioManager {
             return
         }
         
-        guard let filePath = soundEffectFilePaths["proximity"] else {
+        guard soundEffectFilePaths["proximity"] != nil else {
             return
         }
         
-        // Store scene reference and distance
         proximitySoundScenes[starID] = scene
+        let lastDistance = proximitySoundDistances[starID]
         proximitySoundDistances[starID] = distance
         
-        // Calculate pulse interval based on distance (same as haptics)
-        // Use same calculation as haptics for consistency
         let maxDistance: CGFloat = 80.0
         let clampedDistance = max(0, min(distance, maxDistance))
+        if clampedDistance >= maxDistance {
+            stopProximitySound(starID: starID)
+            return
+        }
+        
         let ratio = clampedDistance / maxDistance
         let pulseInterval = 0.15 + (0.85 * Double(ratio))
+        let volumeRatio = Float(1.0 - (0.7 * ratio))
         
-        // ALWAYS stop existing timer first - trust game logic to tell us when to start/stop
-        // The game logic in checkStarProximity() already handles when to call start/stop
-        stopProximitySound(starID: starID)
-        
-        // Create a node for this proximity sound
-        let soundNode = SKNode()
-        soundNode.isHidden = true
-        scene.addChild(soundNode)
-        proximitySoundNodes[starID] = soundNode
-        
-        // Create pulsing timer
-        let timer = Timer.scheduledTimer(withTimeInterval: pulseInterval, repeats: true) { [weak self] timer in
-            guard let self = self, !self.isSoundMuted && self.soundVolume > 0.0 else {
-                timer.invalidate()
-                self?.stopProximitySound(starID: starID)
+        if let lastDist = lastDistance {
+            let distanceChange = abs(distance - lastDist)
+            if distanceChange < 8.0 && proximitySoundTimers[starID] != nil {
                 return
             }
-            
-            // Check if sound node still exists
-            guard let soundNode = self.proximitySoundNodes[starID], soundNode.parent != nil else {
+        }
+        
+        proximitySoundTimers[starID]?.invalidate()
+        
+        let timer = Timer.scheduledTimer(withTimeInterval: pulseInterval, repeats: true) { [weak self] timer in
+            guard let self = self else { return }
+            guard !self.isSoundMuted && self.soundVolume > 0.0 else {
                 timer.invalidate()
                 self.stopProximitySound(starID: starID)
                 return
             }
             
-            // Play sound - volume is controlled globally, proximity perception via pulse frequency
-            let soundAction = SKAction.playSoundFileNamed(filePath, waitForCompletion: false)
-            soundNode.run(soundAction)
+            guard let currentDistance = self.proximitySoundDistances[starID],
+                  let scene = self.proximitySoundScenes[starID] else {
+                timer.invalidate()
+                self.stopProximitySound(starID: starID)
+                return
+            }
+            
+            let currentClampedDistance = max(0, min(currentDistance, maxDistance))
+            if currentClampedDistance >= maxDistance {
+                timer.invalidate()
+                self.stopProximitySound(starID: starID)
+                return
+            }
+            
+            let currentRatio = currentClampedDistance / maxDistance
+            let currentVolumeRatio = Float(1.0 - (0.7 * currentRatio))
+            self.playSoundEffect("proximity", on: scene, volumeMultiplier: currentVolumeRatio)
         }
         
         proximitySoundTimers[starID] = timer
         
-        // Play immediate sound (don't wait for first interval)
         let currentTime = CACurrentMediaTime()
         if currentTime - lastProximitySoundTime > 0.2 {
-            if let soundNode = proximitySoundNodes[starID] {
-                let soundAction = SKAction.playSoundFileNamed(filePath, waitForCompletion: false)
-                soundNode.run(soundAction)
-                lastProximitySoundTime = currentTime
-            }
+            playSoundEffect("proximity", on: scene, volumeMultiplier: volumeRatio)
+            lastProximitySoundTime = currentTime
         }
     }
     
     func stopProximitySound(starID: String) {
-        // Stop timer first
         proximitySoundTimers[starID]?.invalidate()
         proximitySoundTimers.removeValue(forKey: starID)
-        
-        // Stop all actions on the sound node before removing
-        if let soundNode = proximitySoundNodes[starID] {
-            soundNode.removeAllActions()
-            soundNode.removeFromParent()
-        }
-        
-        // Clean up all references
         proximitySoundDistances.removeValue(forKey: starID)
         proximitySoundScenes.removeValue(forKey: starID)
-        proximitySoundNodes.removeValue(forKey: starID)
     }
     
     func stopAllProximitySounds() {
-        // Stop all timers first
         for (_, timer) in proximitySoundTimers {
             timer.invalidate()
         }
         proximitySoundTimers.removeAll()
-        
-        // Stop all actions and remove all nodes
-        for (_, node) in proximitySoundNodes {
-            node.removeAllActions()
-            node.removeFromParent()
-        }
-        proximitySoundNodes.removeAll()
-        
-        // Clean up all references
         proximitySoundDistances.removeAll()
         proximitySoundScenes.removeAll()
     }
     
-    private func playSoundEffect(_ key: String, on scene: SKScene) {
-        guard !isSoundMuted && soundVolume > 0.0 else {
-            return
-        }
+    private func playSoundEffect(_ key: String, on scene: SKScene, volumeMultiplier: Float = 1.0) {
+        guard !isSoundMuted else { return }
+        let clampedMultiplier = max(0.0, min(1.0, volumeMultiplier))
+        let targetVolume = soundVolume * clampedMultiplier
+        guard targetVolume > 0.0 else { return }
         
         guard let filePath = soundEffectFilePaths[key] else {
             return
         }
         
-        // Use SKAction.playSoundFileNamed for non-blocking audio playback
-        let soundAction = SKAction.playSoundFileNamed(filePath, waitForCompletion: false)
-        scene.run(soundAction) // Run on the provided scene
+        if sfxNodePools[key] == nil {
+            _ = ensureSFXNodePool(for: key, filePath: filePath)
+        }
+        
+        guard var pool = sfxNodePools[key] else {
+            return
+        }
+        
+        let node = pool.nextNode()
+        sfxNodePools[key] = pool
+        
+        if node.parent !== scene {
+            node.removeFromParent()
+            scene.addChild(node)
+        }
+        
+        let stopAction = SKAction.stop()
+        let setVolume = SKAction.changeVolume(to: targetVolume, duration: 0.0)
+        let playAction = SKAction.play()
+        let sequence = SKAction.sequence([stopAction, setVolume, playAction])
+        node.run(sequence)
     }
     
     // MARK: - Size-Based Layer Management
@@ -988,6 +980,20 @@ class AudioManager {
                     print("🎵 MUSIC LAYER: Phase \(targetPhase) (\(String(format: "%.0f", size))pt) - updating layer \(layerIndex + 1)/5 volume from \(String(format: "%.3f", currentVolume)) to \(String(format: "%.3f", newVolume))")
                 }
             }
+        }
+    }
+    
+    private func updateAllSFXNodeVolumes() {
+        let targetVolume = isSoundMuted ? 0.0 : soundVolume
+        for (_, pool) in sfxNodePools {
+            for node in pool.nodes {
+                node.run(SKAction.changeVolume(to: targetVolume, duration: 0.05))
+            }
+        }
+        
+        if let loopNode = powerUpLoopAudioNode {
+            let volume = isSoundMuted ? 0.0 : soundVolume
+            loopNode.run(SKAction.changeVolume(to: volume, duration: 0.05))
         }
     }
     
