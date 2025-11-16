@@ -113,6 +113,11 @@ class MenuScene: SKScene {
         // _ = AdManager.shared  // remove
         
         // Switch to menu music and play (ensures correct buffers are used and music starts)
+        // Apply persisted audio settings before starting playback
+        AudioManager.shared.setMusicVolume(musicVolume)
+        AudioManager.shared.setSoundVolume(soundVolume)
+        AudioManager.shared.setMusicMuted(musicMuted)
+        AudioManager.shared.setSoundMuted(soundMuted)
         AudioManager.shared.switchToMenuMusic()
         AudioManager.shared.playBackgroundMusic()
     }

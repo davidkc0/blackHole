@@ -36,6 +36,8 @@ class LoadingScene: SKScene {
         self.loadingLabel = label
         attachDotsOverlay(text: "LOADING", animated: true)
         
+        AudioManager.shared.prepareButtonPressSound()
+        
         // Check if ads are removed
         if IAPManager.shared.checkPurchaseStatus() {
             print("✅ LoadingScene: Ads removed - skipping AdMob initialization")

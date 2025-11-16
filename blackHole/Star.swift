@@ -337,10 +337,11 @@ class Star: SKSpriteNode {
         // Match the star's actual visual footprint (outer corona size + buffer)
         // Outer corona is 4x the core size, so radius is 2x core radius + buffer
         let glow = SKShapeNode(circleOfRadius: size.width + 10)
-        glow.strokeColor = .red
-        glow.lineWidth = 3
+        let isRedSupergiant = (starType == .redSupergiant)
+        glow.strokeColor = isRedSupergiant ? .white : .red
+        glow.lineWidth = isRedSupergiant ? 4 : 3
         glow.fillColor = .clear
-        glow.glowWidth = 8
+        glow.glowWidth = isRedSupergiant ? 12 : 8
         glow.alpha = 0.7
         glow.zPosition = 2
         glow.name = "warning"

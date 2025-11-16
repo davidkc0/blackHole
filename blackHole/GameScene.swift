@@ -173,6 +173,8 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         
         // Initialize music layers for starting size (Phase 1)
         AudioManager.shared.updateMusicLayersForSize(blackHole.currentDiameter)
+        
+        // Removed positional audio listener (no panning for proximity)
     }
     
     private func setupPowerUpSystem() {
@@ -1026,6 +1028,10 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         stars.removeAll { star in
             let dist = distance(from: star.position, to: blackHole.position)
             if dist > removalDistance {
+                if let starName = star.name {
+                    HapticManager.shared.stopDangerProximityHaptic(starID: starName)
+                    AudioManager.shared.stopProximitySound(starID: starName)
+                }
                 star.removeFromParent()
                 return true
             }
@@ -1278,6 +1284,10 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     }
     
     private func removeStar(_ star: Star) {
+        if let starName = star.name {
+            HapticManager.shared.stopDangerProximityHaptic(starID: starName)
+            AudioManager.shared.stopProximitySound(starID: starName)
+        }
         // Track if it's a merged star for cleanup
         if star.isMergedStar {
             mergedStarCount = max(0, mergedStarCount - 1)
@@ -2240,36 +2250,52 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     }
     
     private func checkStarProximity() {
+        var nearestStar: Star?
+        var nearestEdgeDistance: CGFloat = .greatestFiniteMagnitude
+        var nearestThreshold: CGFloat = 0
+        
         for star in stars {
             let dist = distance(from: star.position, to: blackHole.position)
             let starRadius = star.size.width / 2
             let blackHoleRadius = blackHole.currentDiameter / 2
             let edgeDistance = max(0, dist - starRadius - blackHoleRadius)
             let centerBasedThreshold = max(0, GameConstants.starWarningDistance - starRadius - blackHoleRadius)
-            let threshold = max(GameConstants.starWarningEdgeDistance, centerBasedThreshold)
-
+            // Scale edge threshold with star size (big stars warn earlier), cap to avoid overreach
+            let scaledEdgeThreshold = min(max(GameConstants.starWarningEdgeDistance, starRadius * 0.25), 220)
+            let threshold = max(scaledEdgeThreshold, centerBasedThreshold)
+            
             if !blackHole.canConsume(star) && edgeDistance < threshold {
-                star.showWarningGlow()
-
-                if edgeDistance < GameConstants.starRimFlashDistance {
-                    blackHole.retroRimLight?.run(SKAction.sequence([
-                        SKAction.fadeAlpha(to: 1.0, duration: 0.1),
-                        SKAction.fadeAlpha(to: RetroAestheticManager.Config.rimLightIntensity, duration: 0.1)
-                    ]))
-                }
-
-                if let starName = star.name {
-                    HapticManager.shared.startDangerProximityHaptic(starID: starName, distance: edgeDistance)
-                    AudioManager.shared.startProximitySound(starID: starName, distance: edgeDistance, on: self)
+                // Track nearest dangerous star
+                if edgeDistance < nearestEdgeDistance {
+                    nearestEdgeDistance = edgeDistance
+                    nearestStar = star
+                    nearestThreshold = threshold
                 }
             } else {
                 star.hideWarningGlow()
-
                 if let starName = star.name {
                     HapticManager.shared.stopDangerProximityHaptic(starID: starName)
-                    AudioManager.shared.stopProximitySound(starID: starName)
                 }
             }
+        }
+        
+        // Drive effects only for nearest star
+        if let star = nearestStar, let starName = star.name {
+            star.showWarningGlow()
+            
+            if nearestEdgeDistance < GameConstants.starRimFlashDistance {
+                blackHole.retroRimLight?.run(SKAction.sequence([
+                    SKAction.fadeAlpha(to: 1.0, duration: 0.1),
+                    SKAction.fadeAlpha(to: RetroAestheticManager.Config.rimLightIntensity, duration: 0.1)
+                ]))
+            }
+            
+            HapticManager.shared.startDangerProximityHaptic(starID: starName, distance: nearestEdgeDistance)
+            
+            AudioManager.shared.startProximitySound(starID: starName, distance: nearestEdgeDistance, on: self)
+        } else {
+            // No dangerous stars: stop global proximity
+            AudioManager.shared.stopAllProximitySounds()
         }
     }
     
@@ -2543,6 +2569,10 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         // Stop timers
         starSpawnTimer?.invalidate()
         colorChangeTimer?.invalidate()
+        colorChangeWarningTimer?.invalidate()
+        starSpawnTimer = nil
+        colorChangeTimer = nil
+        colorChangeWarningTimer = nil
         
         // Stop physics
         physicsWorld.speed = 0
@@ -2631,6 +2661,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         // Stop color change warning if active
         stopColorChangeWarning()
         warningWasActive = wasWarningActive
+        AudioManager.shared.stopAllProximitySounds()
         
         // Pause timers
         starSpawnTimer?.invalidate()
@@ -2883,7 +2914,8 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     }
     
     fileprivate func returnToMenu() {
-        // Stop game music and switch to menu music
+        AudioManager.shared.stopAllProximitySounds()
+        HapticManager.shared.stopAllDangerProximityHaptics()
         AudioManager.shared.stopBackgroundMusic()
         AudioManager.shared.switchToMenuMusic()
         
@@ -2907,6 +2939,8 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         
         // Reset game manager
         GameManager.shared.resetScore()
+        AudioManager.shared.stopAllProximitySounds()
+        HapticManager.shared.stopAllDangerProximityHaptics()
         
         // Ensure music is ready for new game (switchToGameMusic will start it in didMove)
         // Don't stop music here - let it continue or restart in new scene

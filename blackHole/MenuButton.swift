@@ -108,6 +108,8 @@ class MenuButton: SKNode {
         background.fillColor = UIColor(hex: "#83D6FF").withAlphaComponent(0.35)
         let scaleDown = SKAction.scale(to: 0.95, duration: 0.1)
         run(scaleDown)
+        
+        AudioManager.shared.playButtonPressSound()
     }
     
     func animateRelease() {
