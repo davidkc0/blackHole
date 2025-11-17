@@ -140,7 +140,7 @@ enum GameConstants {
         static let enableFilmGrain: Bool = true        // ✅ WORKING - subtle white noise
         static let enableVignette: Bool = true         // ✅ WORKING - edge darkening
         static let enableRimLighting: Bool = true      // ✅ WORKING - color-matched circles
-        static let enableColorGrading: Bool = false    // ❌ OFF
+        static let enableColorGrading: Bool = true    // ❌ OFF
         static let defaultColorProfile: ColorGradingProfile = .bladeRunner
         static let enableScanlines: Bool = false
         static let grainIntensity: CGFloat = 0.03      // Reduced - more subtle
