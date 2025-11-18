@@ -3,6 +3,160 @@
     "version" : "2024-11-15"
   },
   "resources" : {
+    "achievementImages" : {
+      "com.singularity.achievement.bluegiant100-en-US" : [
+        {
+          "localID" : "com.singularity.achievement.bluegiant100-en-US",
+          "url" : "en-US\/AchievementImage-com.singularity.achievement.bluegiant100-en-US.png"
+        }
+      ],
+      "com.singularity.achievement.noshrink-en-US" : [
+        {
+          "localID" : "com.singularity.achievement.noshrink-en-US",
+          "url" : "en-US\/AchievementImage-com.singularity.achievement.noshrink-en-US.png"
+        }
+      ],
+      "com.singularity.achievement.playtime1hour-en-US" : [
+        {
+          "localID" : "com.singularity.achievement.playtime1hour-en-US",
+          "url" : "en-US\/AchievementImage-com.singularity.achievement.playtime1hour-en-US.png"
+        }
+      ],
+      "com.singularity.achievement.playtime10hours-en-US" : [
+        {
+          "localID" : "com.singularity.achievement.playtime10hours-en-US",
+          "url" : "en-US\/AchievementImage-com.singularity.achievement.playtime10hours-en-US.png"
+        }
+      ],
+      "com.singularity.achievement.redgiant-en-US" : [
+        {
+          "localID" : "com.singularity.achievement.redgiant-en-US",
+          "url" : "en-US\/AchievementImage-com.singularity.achievement.redgiant-en-US.png"
+        }
+      ],
+      "com.singularity.achievement.size1000-en-US" : [
+        {
+          "localID" : "com.singularity.achievement.size1000-en-US",
+          "url" : "en-US\/AchievementImage-com.singularity.achievement.size1000-en-US.png"
+        }
+      ],
+      "com.singularity.achievement.stars100-en-US" : [
+        {
+          "localID" : "com.singularity.achievement.stars100-en-US",
+          "url" : "en-US\/AchievementImage-com.singularity.achievement.stars100-en-US.png"
+        }
+      ],
+      "com.singularity.achievement.stars1000-en-US" : [
+        {
+          "localID" : "com.singularity.achievement.stars1000-en-US",
+          "url" : "en-US\/AchievementImage-com.singularity.achievement.stars1000-en-US.png"
+        }
+      ],
+      "com.singularity.achievement.stars10000-en-US" : [
+        {
+          "localID" : "com.singularity.achievement.stars10000-en-US",
+          "url" : "en-US\/AchievementImage-com.singularity.achievement.stars10000-en-US.png"
+        }
+      ],
+      "com.singularity.achievement.whitedwarf100-en-US" : [
+        {
+          "localID" : "com.singularity.achievement.whitedwarf100-en-US",
+          "url" : "en-US\/AchievementImage-com.singularity.achievement.whitedwarf100-en-US.png"
+        }
+      ]
+    },
+    "achievementLocalizations" : {
+      "com.singularity.achievement.bluegiant100" : [
+        {
+          "afterEarnedDescription" : "Blue giant master! You've devoured 100 of these massive stars.",
+          "beforeEarnedDescription" : "Absorb 100 blue giant stars total.",
+          "locale" : "en-US",
+          "localID" : "com.singularity.achievement.bluegiant100-en-US",
+          "name" : "Blue Giant Master "
+        }
+      ],
+      "com.singularity.achievement.noshrink" : [
+        {
+          "afterEarnedDescription" : "Perfect run! You've completed a game without shrinking. Flawless execution!",
+          "beforeEarnedDescription" : "Complete a game without shrinking even once.",
+          "locale" : "en-US",
+          "localID" : "com.singularity.achievement.noshrink-en-US",
+          "name" : "Perfect Run"
+        }
+      ],
+      "com.singularity.achievement.playtime1hour" : [
+        {
+          "afterEarnedDescription" : "You've journeyed 0.0001 light years through the cosmos!",
+          "beforeEarnedDescription" : "Play for a total of 1 hour across all games.",
+          "locale" : "en-US",
+          "localID" : "com.singularity.achievement.playtime1hour-en-US",
+          "name" : "0.0001 Light Years "
+        }
+      ],
+      "com.singularity.achievement.playtime10hours" : [
+        {
+          "afterEarnedDescription" : "You've traveled 0.001 light years! A true cosmic explorer.",
+          "beforeEarnedDescription" : "Play for a total of 10 hours across all games.",
+          "locale" : "en-US",
+          "localID" : "com.singularity.achievement.playtime10hours-en-US",
+          "name" : "0.001 Light Years "
+        }
+      ],
+      "com.singularity.achievement.redgiant" : [
+        {
+          "afterEarnedDescription" : "First red supergiant consumed! You've conquered the largest stars.",
+          "beforeEarnedDescription" : "Absorb your first red supergiant star.",
+          "locale" : "en-US",
+          "localID" : "com.singularity.achievement.redgiant-en-US",
+          "name" : "First Red Giant "
+        }
+      ],
+      "com.singularity.achievement.size1000" : [
+        {
+          "afterEarnedDescription" : "Super massive achieved! Your black hole has reached 1000 points.",
+          "beforeEarnedDescription" : "Grow your black hole to 1000 points in diameter in a single game.",
+          "locale" : "en-US",
+          "localID" : "com.singularity.achievement.size1000-en-US",
+          "name" : "Super Massive"
+        }
+      ],
+      "com.singularity.achievement.stars100" : [
+        {
+          "afterEarnedDescription" : "You've absorbed 100 stars! Your black hole is growing stronger.",
+          "beforeEarnedDescription" : "Absorb 100 stars total across all games.",
+          "locale" : "en-US",
+          "localID" : "com.singularity.achievement.stars100-en-US",
+          "name" : "Star Collector"
+        }
+      ],
+      "com.singularity.achievement.stars1000" : [
+        {
+          "afterEarnedDescription" : "1,000 stars consumed! You're becoming a cosmic force.",
+          "beforeEarnedDescription" : "Absorb 1,000 stars total across all games.",
+          "locale" : "en-US",
+          "localID" : "com.singularity.achievement.stars1000-en-US",
+          "name" : "Star Devourer "
+        }
+      ],
+      "com.singularity.achievement.stars10000" : [
+        {
+          "afterEarnedDescription" : "10,000 stars devoured! You've achieved true galactic dominance.",
+          "beforeEarnedDescription" : "Absorb 10,000 stars total across all games.",
+          "locale" : "en-US",
+          "localID" : "com.singularity.achievement.stars10000-en-US",
+          "name" : "Galactic Glutton"
+        }
+      ],
+      "com.singularity.achievement.whitedwarf100" : [
+        {
+          "afterEarnedDescription" : "Master of white dwarfs! You've consumed 100 of these stellar remnants.",
+          "beforeEarnedDescription" : "Absorb 100 white dwarf stars total.",
+          "locale" : "en-US",
+          "localID" : "com.singularity.achievement.whitedwarf100-en-US",
+          "name" : "White Dwarf Master"
+        }
+      ]
+    },
     "achievements" : [
       {
         "activityProperties" : {
@@ -12,7 +166,7 @@
         "points" : 10,
         "referenceName" : "Star Collector",
         "repeatable" : false,
-        "showBeforeEarned" : true,
+        "showBeforeEarned" : false,
         "vendorIdentifier" : "com.singularity.achievement.stars100"
       },
       {
@@ -23,7 +177,7 @@
         "points" : 25,
         "referenceName" : "Star Devourer",
         "repeatable" : false,
-        "showBeforeEarned" : true,
+        "showBeforeEarned" : false,
         "vendorIdentifier" : "com.singularity.achievement.stars1000"
       },
       {
@@ -34,7 +188,7 @@
         "points" : 50,
         "referenceName" : "Galactic Glutton",
         "repeatable" : false,
-        "showBeforeEarned" : true,
+        "showBeforeEarned" : false,
         "vendorIdentifier" : "com.singularity.achievement.stars10000"
       },
       {
@@ -45,7 +199,7 @@
         "points" : 15,
         "referenceName" : "White Dwarf Master",
         "repeatable" : false,
-        "showBeforeEarned" : true,
+        "showBeforeEarned" : false,
         "vendorIdentifier" : "com.singularity.achievement.whitedwarf100"
       },
       {
@@ -56,7 +210,7 @@
         "points" : 20,
         "referenceName" : "Blue Giant Master",
         "repeatable" : false,
-        "showBeforeEarned" : true,
+        "showBeforeEarned" : false,
         "vendorIdentifier" : "com.singularity.achievement.bluegiant100"
       },
       {
@@ -67,7 +221,7 @@
         "points" : 10,
         "referenceName" : "First Red Giant",
         "repeatable" : false,
-        "showBeforeEarned" : true,
+        "showBeforeEarned" : false,
         "vendorIdentifier" : "com.singularity.achievement.redgiant"
       },
       {
@@ -78,7 +232,7 @@
         "points" : 15,
         "referenceName" : "0.0001 Light Years",
         "repeatable" : false,
-        "showBeforeEarned" : true,
+        "showBeforeEarned" : false,
         "vendorIdentifier" : "com.singularity.achievement.playtime1hour"
       },
       {
@@ -89,7 +243,7 @@
         "points" : 40,
         "referenceName" : "0.001 Light Years",
         "repeatable" : false,
-        "showBeforeEarned" : true,
+        "showBeforeEarned" : false,
         "vendorIdentifier" : "com.singularity.achievement.playtime10hours"
       },
       {
@@ -98,9 +252,9 @@
         },
         "archived" : false,
         "points" : 30,
-        "referenceName" : "Super Massive ",
+        "referenceName" : "Super Massive",
         "repeatable" : false,
-        "showBeforeEarned" : true,
+        "showBeforeEarned" : false,
         "vendorIdentifier" : "com.singularity.achievement.size1000"
       },
       {
@@ -110,11 +264,37 @@
         "archived" : false,
         "points" : 35,
         "referenceName" : "Perfect Run",
-        "repeatable" : false,
-        "showBeforeEarned" : true,
+        "repeatable" : true,
+        "showBeforeEarned" : false,
         "vendorIdentifier" : "com.singularity.achievement.noshrink"
       }
     ],
+    "leaderboardLocalizations" : {
+      "com.singularity.leaderboard.highscore" : [
+        {
+          "formatterOverride" : "INTEGER",
+          "locale" : "en-US",
+          "localID" : "com.singularity.leaderboard.highscore-en-US",
+          "name" : "High Score"
+        }
+      ],
+      "com.singularity.leaderboard.playtime" : [
+        {
+          "formatterOverride" : "ELAPSED_TIME_SECOND",
+          "locale" : "en-US",
+          "localID" : "com.singularity.leaderboard.playtime-en-US",
+          "name" : "Longest Playtime"
+        }
+      ],
+      "com.singularity.leaderboard.totalstars" : [
+        {
+          "formatterOverride" : "INTEGER",
+          "locale" : "en-US",
+          "localID" : "com.singularity.leaderboard.totalstars-en-US",
+          "name" : "Total Stars"
+        }
+      ]
+    },
     "leaderboards" : [
       {
         "activityProperties" : {

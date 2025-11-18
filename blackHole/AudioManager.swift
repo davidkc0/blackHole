@@ -56,7 +56,7 @@ class AudioManager {
     private weak var proximityLoopScene: SKScene?
     private var isProximityActive = false
     private var proximityStartTime: TimeInterval = 0
-    private let proximityMinPlayDuration: TimeInterval = 1.5 // Minimum 1.5s play time
+    private let proximityMinPlayDuration: TimeInterval = 1 // Minimum 1s play time
     private var proximityPendingStopWorkItem: DispatchWorkItem?
     
     

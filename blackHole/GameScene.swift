@@ -506,7 +506,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         
         // Inner fill circle (shrinks with black hole size) - SAME SIZE as outline when full
         shrinkIndicatorFill = SKShapeNode(circleOfRadius: GameConstants.shrinkIndicatorRadius)
-        shrinkIndicatorFill!.fillColor = UIColor(red: 0.2, green: 0.8, blue: 1.0, alpha: 0.8)  // Cyan
+        shrinkIndicatorFill!.fillColor = UIColor.white.withAlphaComponent(0.6)  // White, 60% opacity
         shrinkIndicatorFill!.strokeColor = .clear
         shrinkIndicatorFill!.position = CGPoint(x: xPos, y: yPos)
         shrinkIndicatorFill!.zPosition = 101
@@ -1646,8 +1646,8 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             print("🌈 Rainbow photon ring animation started")
             
         case .freeze:
-            freezeAllStars()
-            print("❄️ Freeze activated! Stars frozen for \(type.duration)s")
+            // Freeze comets disabled - no action needed
+            break
         }
     }
     
@@ -1661,7 +1661,8 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         
         switch type {
         case .freeze:
-            unfreezeAllStars()
+            // Freeze comets disabled - no action needed
+            break
         case .rainbow:
             // Restore normal photon ring
             print("🌈 Rainbow Mode expired - stopping rainbow animation")
@@ -2302,7 +2303,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
                     nearestThreshold = threshold
                 }
             } else {
-                star.hideWarningGlow()
+                // star.hideWarningGlow()  // COMMENTED OUT - warning ring disabled
                 if let starName = star.name {
                     HapticManager.shared.stopDangerProximityHaptic(starID: starName)
                 }
@@ -2311,7 +2312,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         
         // Drive effects only for nearest star
         if let star = nearestStar, let starName = star.name {
-            star.showWarningGlow()
+            // star.showWarningGlow()  // COMMENTED OUT - warning ring disabled
             
             if nearestEdgeDistance < GameConstants.starRimFlashDistance {
                 blackHole.retroRimLight?.run(SKAction.sequence([
@@ -2510,7 +2511,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     private func checkAndShowMovementTip() {
         hasShownMovementTip = UserDefaults.standard.bool(forKey: "hasShownMovementTip")
         if !hasShownMovementTip {
-            showTipBanner(text: "Touch and drag the black hole to move. Absorb stars that match the ring color around the black hole.", duration: 5.0)
+            showTipBanner(text: "Touch and drag to move. Absorb stars that match the ring color.", duration: 5.0)
             UserDefaults.standard.set(true, forKey: "hasShownMovementTip")
         }
     }
@@ -2518,7 +2519,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     private func checkAndShowShrinkGaugeTip() {
         hasShownShrinkGaugeTip = UserDefaults.standard.bool(forKey: "hasShownShrinkGaugeTip")
         if !hasShownShrinkGaugeTip {
-            showTipBanner(text: "The cyan gauge shows your size. Your black hole shrinks over time if you don't absorb stars.", duration: 4.0)
+            showTipBanner(text: "The white gauge shows your size. Your black hole shrinks over time if you don't absorb stars.", duration: 4.0)
             UserDefaults.standard.set(true, forKey: "hasShownShrinkGaugeTip")
         }
     }
@@ -2526,7 +2527,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     private func checkAndShowWrongColorTip() {
         hasShownWrongColorTip = UserDefaults.standard.bool(forKey: "hasShownWrongColorTip")
         if !hasShownWrongColorTip {
-            showTipBanner(text: "If you absorb a star that does not match the ring color you'll shrink.", duration: 3.0)
+            showTipBanner(text: "Absorbing the wrong color star makes you shrink.", duration: 3.0)
             UserDefaults.standard.set(true, forKey: "hasShownWrongColorTip")
         }
     }
@@ -2534,7 +2535,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     private func checkAndShowDangerStarTip() {
         hasShownDangerStarTip = UserDefaults.standard.bool(forKey: "hasShownDangerStarTip")
         if !hasShownDangerStarTip {
-            showTipBanner(text: "Stay away from stars larger than you.", duration: 3.0)
+            showTipBanner(text: "Avoid stars larger than you or you'll be destroyed.", duration: 3.0)
             UserDefaults.standard.set(true, forKey: "hasShownDangerStarTip")
         }
     }
@@ -2542,7 +2543,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     private func checkAndShowPowerUpTip() {
         hasShownPowerUpTip = UserDefaults.standard.bool(forKey: "hasShownPowerUpTip")
         if !hasShownPowerUpTip {
-            showTipBanner(text: "Absorb a comet to either freeze all stars or absorb any color for 8 seconds.", duration: 3.0)
+            showTipBanner(text: "Absorb comets to absorb any color for 8 seconds.", duration: 3.0)
             UserDefaults.standard.set(true, forKey: "hasShownPowerUpTip")
         }
     }
@@ -2957,8 +2958,8 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         shrinkIndicatorFill!.position = CGPoint(x: xPos, y: yPos)
         shrinkIndicatorFill!.zPosition = 101
         
-        // Always cyan color
-        shrinkIndicatorFill!.fillColor = UIColor(red: 0.2, green: 0.8, blue: 1.0, alpha: 0.8)
+        // Always white color, 60% opacity
+        shrinkIndicatorFill!.fillColor = UIColor.white.withAlphaComponent(0.6)
         
         hudNode.addChild(shrinkIndicatorFill!)
     }

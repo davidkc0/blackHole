@@ -43,7 +43,7 @@ class GameCenterManager: NSObject {
                 
                 // Configure access point
                 DispatchQueue.main.async {
-                    GKAccessPoint.shared.location = .topLeading
+                    GKAccessPoint.shared.location = .bottomTrailing
                     GKAccessPoint.shared.showHighlights = true
                     GKAccessPoint.shared.isActive = true
                 }

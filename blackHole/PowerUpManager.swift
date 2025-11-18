@@ -10,7 +10,7 @@ import SpriteKit
 class PowerUpManager {
     var activePowerUps: [PowerUp] = []
     var nextRainbowSpawn: TimeInterval = 0
-    var nextFreezeSpawn: TimeInterval = 0
+    // var nextFreezeSpawn: TimeInterval = 0  // COMMENTED OUT - freeze comets disabled
     var lastCollectionTime: TimeInterval = 0
     var gameStartTime: TimeInterval = 0
     
@@ -30,12 +30,13 @@ class PowerUpManager {
         let rainbowInterval = TimeInterval.random(in: PowerUpType.rainbow.baseSpawnInterval)
         nextRainbowSpawn = currentTime + rainbowInterval + INITIAL_DELAY
         
+        // COMMENTED OUT - freeze comets disabled
         // Schedule next freeze spawn with random interval
-        let freezeInterval = TimeInterval.random(in: PowerUpType.freeze.baseSpawnInterval)
-        nextFreezeSpawn = currentTime + freezeInterval + INITIAL_DELAY
+        // let freezeInterval = TimeInterval.random(in: PowerUpType.freeze.baseSpawnInterval)
+        // nextFreezeSpawn = currentTime + freezeInterval + INITIAL_DELAY
         
         print("⏰ Next Rainbow spawn: \(String(format: "%.1f", rainbowInterval + INITIAL_DELAY))s")
-        print("⏰ Next Freeze spawn: \(String(format: "%.1f", freezeInterval + INITIAL_DELAY))s")
+        // print("⏰ Next Freeze spawn: \(String(format: "%.1f", freezeInterval + INITIAL_DELAY))s")  // COMMENTED OUT
     }
     
     func onPowerUpCollected(currentTime: TimeInterval) {
@@ -44,10 +45,10 @@ class PowerUpManager {
         
         // Delay next spawns
         let rainbowDelay = TimeInterval.random(in: PowerUpType.rainbow.baseSpawnInterval)
-        let freezeDelay = TimeInterval.random(in: PowerUpType.freeze.baseSpawnInterval)
+        // let freezeDelay = TimeInterval.random(in: PowerUpType.freeze.baseSpawnInterval)  // COMMENTED OUT
         
         nextRainbowSpawn = currentTime + COLLECTION_COOLDOWN + rainbowDelay
-        nextFreezeSpawn = currentTime + COLLECTION_COOLDOWN + freezeDelay
+        // nextFreezeSpawn = currentTime + COLLECTION_COOLDOWN + freezeDelay  // COMMENTED OUT
         
         print("⏰ Collection cooldown: \(COLLECTION_COOLDOWN)s - Next spawns delayed")
     }
@@ -71,13 +72,14 @@ class PowerUpManager {
             nextRainbowSpawn = currentTime + nextInterval
         }
         
+        // COMMENTED OUT - freeze comets disabled
         // Check if it's time to spawn freeze
-        if currentTime >= nextFreezeSpawn && activePowerUps.isEmpty {
-            spawnPowerUp(type: .freeze, currentTime: currentTime)
-            // Schedule next freeze with random interval
-            let nextInterval = TimeInterval.random(in: PowerUpType.freeze.baseSpawnInterval)
-            nextFreezeSpawn = currentTime + nextInterval
-        }
+        // if currentTime >= nextFreezeSpawn && activePowerUps.isEmpty {
+        //     spawnPowerUp(type: .freeze, currentTime: currentTime)
+        //     // Schedule next freeze with random interval
+        //     let nextInterval = TimeInterval.random(in: PowerUpType.freeze.baseSpawnInterval)
+        //     nextFreezeSpawn = currentTime + nextInterval
+        // }
     }
     
     func spawnPowerUp(type: PowerUpType, currentTime: TimeInterval) {
