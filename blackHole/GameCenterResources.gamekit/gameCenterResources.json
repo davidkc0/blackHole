@@ -166,7 +166,7 @@
         "points" : 10,
         "referenceName" : "Star Collector",
         "repeatable" : false,
-        "showBeforeEarned" : false,
+        "showBeforeEarned" : true,
         "vendorIdentifier" : "com.singularity.achievement.stars100"
       },
       {
@@ -177,7 +177,7 @@
         "points" : 25,
         "referenceName" : "Star Devourer",
         "repeatable" : false,
-        "showBeforeEarned" : false,
+        "showBeforeEarned" : true,
         "vendorIdentifier" : "com.singularity.achievement.stars1000"
       },
       {
@@ -188,7 +188,7 @@
         "points" : 50,
         "referenceName" : "Galactic Glutton",
         "repeatable" : false,
-        "showBeforeEarned" : false,
+        "showBeforeEarned" : true,
         "vendorIdentifier" : "com.singularity.achievement.stars10000"
       },
       {
@@ -199,7 +199,7 @@
         "points" : 15,
         "referenceName" : "White Dwarf Master",
         "repeatable" : false,
-        "showBeforeEarned" : false,
+        "showBeforeEarned" : true,
         "vendorIdentifier" : "com.singularity.achievement.whitedwarf100"
       },
       {
@@ -210,7 +210,7 @@
         "points" : 20,
         "referenceName" : "Blue Giant Master",
         "repeatable" : false,
-        "showBeforeEarned" : false,
+        "showBeforeEarned" : true,
         "vendorIdentifier" : "com.singularity.achievement.bluegiant100"
       },
       {
@@ -232,7 +232,7 @@
         "points" : 15,
         "referenceName" : "0.0001 Light Years",
         "repeatable" : false,
-        "showBeforeEarned" : false,
+        "showBeforeEarned" : true,
         "vendorIdentifier" : "com.singularity.achievement.playtime1hour"
       },
       {
@@ -243,7 +243,7 @@
         "points" : 40,
         "referenceName" : "0.001 Light Years",
         "repeatable" : false,
-        "showBeforeEarned" : false,
+        "showBeforeEarned" : true,
         "vendorIdentifier" : "com.singularity.achievement.playtime10hours"
       },
       {

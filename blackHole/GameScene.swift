@@ -2837,7 +2837,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     private func showBlackHoleResumeIndicator() {
         // Add pulsing ring around black hole to indicate where to tap
         let ring = SKShapeNode(circleOfRadius: blackHole.currentDiameter / 2 + 30)
-        ring.strokeColor = .cyan
+        ring.strokeColor = UIColor(hex: "#83D6FF")  // Match modal blue color
         ring.lineWidth = 3
         ring.glowWidth = 8
         ring.fillColor = .clear

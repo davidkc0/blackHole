@@ -25,7 +25,6 @@ class MenuScene: SKScene {
     private var timedModeButton: MenuButton!
     private var settingsIconButton: IconButton!
     private var statsIconButton: IconButton!
-    private var discordIconButton: IconButton!
     
     // Animation state
     private var isTransitioning = false
@@ -169,9 +168,6 @@ class MenuScene: SKScene {
         } else if statsIconButton.contains(point: location) {
             statsIconButton.animatePress()
             print("✅ STATS button pressed")
-        } else if discordIconButton.contains(point: location) {
-            discordIconButton.animatePress()
-            print("✅ DISCORD button pressed")
         }
     }
     
@@ -223,10 +219,6 @@ class MenuScene: SKScene {
             statsIconButton.animateRelease()
             print("📊 STATS button tapped")
             statsIconButton.onTap?()
-        } else if discordIconButton.contains(point: location) {
-            discordIconButton.animateRelease()
-            print("💬 DISCORD button tapped")
-            discordIconButton.onTap?()
         }
     }
     
@@ -497,38 +489,27 @@ class MenuScene: SKScene {
     private func setupIconButtons() {
         let screenSize = UIScreen.main.bounds.size
         
-        // Settings button (top-left)
+        // Settings button (top-left) - positioned to match Game Center icon distance from top
         settingsIconButton = IconButton(iconName: "settings")
         let topLeftX = -screenSize.width / 2 + 24 + 20  // margin + half button size (40pt/2)
-        let topLeftY = screenSize.height / 2 - 24 - 20 - 20  // margin + half button size + 20pt down
-        settingsIconButton.position = CGPoint(x: topLeftX, y: topLeftY)
+        // Match Game Center icon distance from top (top-right position) + 50pt lower
+        let topRightY = screenSize.height / 2 - 24 - 20 - 20 - 50  // margin + half button size + 20pt down + 50pt lower
+        settingsIconButton.position = CGPoint(x: topLeftX, y: topRightY)
         settingsIconButton.zPosition = 100
         settingsIconButton.onTap = { [weak self] in
             self?.showSettingsModal()
         }
         addChild(settingsIconButton)
         
-        // Stats button (to the right of settings button)
+        // Stats button (to the right of settings button) - same Y as settings to match Game Center
         statsIconButton = IconButton(iconName: "chart")
         let statsX = topLeftX + 64  // 40pt button + 24pt spacing
-        statsIconButton.position = CGPoint(x: statsX, y: topLeftY)
+        statsIconButton.position = CGPoint(x: statsX, y: topRightY)
         statsIconButton.zPosition = 100
         statsIconButton.onTap = { [weak self] in
             self?.showStatsModal()
         }
         addChild(statsIconButton)
-        
-        // Discord button (top-right)
-        discordIconButton = IconButton(iconName: "discord")
-        let topRightX = screenSize.width / 2 - 24 - 20  // margin + half button size (40pt/2)
-        let topRightY = screenSize.height / 2 - 24 - 20 - 20  // margin + half button size + 20pt down
-        discordIconButton.position = CGPoint(x: topRightX, y: topRightY)
-        discordIconButton.zPosition = 100
-        discordIconButton.onTap = {
-            // Placeholder for future Discord integration
-            print("Discord button tapped - feature coming soon")
-        }
-        addChild(discordIconButton)
     }
     
     private func applyInitialAnimations() {
@@ -563,14 +544,6 @@ class MenuScene: SKScene {
         let scaleUpStats = SKAction.scale(to: 1.0, duration: 0.3)
         scaleUpStats.timingMode = .easeOut
         statsIconButton.run(SKAction.group([fadeInStats, scaleUpStats]))
-        
-        // Fade in the discord button
-        discordIconButton.alpha = 0
-        discordIconButton.setScale(0.9)
-        let fadeInDiscord = SKAction.fadeIn(withDuration: 0.3)
-        let scaleUpDiscord = SKAction.scale(to: 1.0, duration: 0.3)
-        scaleUpDiscord.timingMode = .easeOut
-        discordIconButton.run(SKAction.group([fadeInDiscord, scaleUpDiscord]))
     }
     
     private func addVersionLabel() {
