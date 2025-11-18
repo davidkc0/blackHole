@@ -17,8 +17,8 @@ class AdManager: NSObject {
     private var sdkInitialized = false
     private var loadTimeoutFired = false  // Track if timeout occurred
     
-    // REPLACE WITH YOUR REAL AD UNIT ID BEFORE PRODUCTION
-    private let adUnitID = "ca-app-pub-3940256099942544/4411468910"  // Test ID
+    // Production ad unit ID
+    private let adUnitID = "ca-app-pub-6046236506206156/7271704137"
     
     private override init() {
         super.init()

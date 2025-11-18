@@ -15,7 +15,7 @@ class GameManager {
     
     // Ad counter properties
     private(set) var gamesPlayedSinceLastAd: Int = 0
-    private let showAdEveryNGames: Int = 1  // Changed from 3 to 1 for testing - TODO: Change back to 3 for production
+    private let showAdEveryNGames: Int = 3  // Show ad every 3rd game
     
     private let highScoreKey = "blackHole_highScore"
     
@@ -28,6 +28,12 @@ class GameManager {
         if currentScore > highScore {
             highScore = currentScore
             saveHighScore()
+            
+            // Submit to Game Center
+            GameCenterManager.shared.submitScore(
+                highScore,
+                to: GameCenterConstants.highScoreLeaderboardID
+            )
         }
     }
     

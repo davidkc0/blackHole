@@ -273,3 +273,30 @@ extension UIColor {
     }
 }
 
+// MARK: - Game Center
+
+struct GameCenterConstants {
+    // Leaderboard IDs
+    static let highScoreLeaderboardID = "com.singularity.leaderboard.highscore"
+    static let totalStarsLeaderboardID = "com.singularity.leaderboard.totalstars"
+    static let longestPlaytimeLeaderboardID = "com.singularity.leaderboard.playtime"
+    
+    // Achievement IDs - Star Collection
+    static let achievement100Stars = "com.singularity.achievement.stars100"
+    static let achievement1000Stars = "com.singularity.achievement.stars1000"
+    static let achievement10000Stars = "com.singularity.achievement.stars10000"
+    
+    // Achievement IDs - Star Types
+    static let achievement100WhiteDwarfs = "com.singularity.achievement.whitedwarf100"
+    static let achievement100BlueGiants = "com.singularity.achievement.bluegiant100"
+    static let achievementRedGiant = "com.singularity.achievement.redgiant"
+    
+    // Achievement IDs - Playtime
+    static let achievement1HourPlaytime = "com.singularity.achievement.playtime1hour"
+    static let achievement10HoursPlaytime = "com.singularity.achievement.playtime10hours"
+    
+    // Achievement IDs - Skill-Based
+    static let achievementReachSize1000 = "com.singularity.achievement.size1000"
+    static let achievementNoShrink = "com.singularity.achievement.noshrink"
+}
+

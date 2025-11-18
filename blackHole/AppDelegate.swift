@@ -8,6 +8,7 @@
 import UIKit
 import GoogleMobileAds
 import AVFoundation
+import GameKit
 
 @main
 class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -16,6 +17,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {                                                                                           
         print("🚀 App launching - staged initialization...")
+        
+        // Initialize Game Center
+        GameCenterManager.shared.authenticatePlayer()
         
         // Configure audio session
         configureAudioSession()

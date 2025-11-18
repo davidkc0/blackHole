@@ -55,6 +55,9 @@ class AudioManager {
     private var proximityLoopNode: SKAudioNode?
     private weak var proximityLoopScene: SKScene?
     private var isProximityActive = false
+    private var proximityStartTime: TimeInterval = 0
+    private let proximityMinPlayDuration: TimeInterval = 1.5 // Minimum 1.5s play time
+    private var proximityPendingStopWorkItem: DispatchWorkItem?
     
     
     // Power-up Loop Sound Management
@@ -211,15 +214,6 @@ class AudioManager {
         }
         
         print("✅ AudioManager: Loaded \(soundEffectFilePaths.count)/10 sound effect paths")
-        
-        // Pre-create proximity audio node to avoid blocking during gameplay
-        if let proximityPath = soundEffectFilePaths["proximity"] {
-            let newNode = SKAudioNode(fileNamed: proximityPath)
-            newNode.autoplayLooped = true
-            newNode.isPositional = false
-            proximityLoopNode = newNode
-            print("✅ AudioManager: Pre-created proximity audio node")
-        }
     }
     
     @discardableResult
@@ -281,6 +275,15 @@ class AudioManager {
             if ensureSFXNodePool(for: key, filePath: filePath) {
                 createdPools += 1
             }
+        }
+        
+        // Pre-create proximity sound node to avoid blocking during gameplay
+        if let proximityPath = soundEffectFilePaths["proximity"] {
+            let newNode = SKAudioNode(fileNamed: proximityPath)
+            newNode.autoplayLooped = true
+            newNode.isPositional = false
+            proximityLoopNode = newNode
+            print("✅ AudioManager: Pre-created proximity audio node")
         }
         
         print("✅ AudioManager: Prepared \(createdPools)/\(soundEffectFilePaths.count) sound effect pools")
@@ -390,7 +393,7 @@ class AudioManager {
         // Game music: activate all 5 layers, but mute layers 2-5 initially (unmute based on size phases)
         if isMenuMusic {
             activateLayer(0, startFromBeginning: true)
-            print("🎵 AudioManager: Menu music started (single layer)")
+            print("ðŸŽµ AudioManager: Menu music started (single layer)")
         } else {
             // Start all 5 layers playing, but only unmute layer 1 initially
             print("🎵 AudioManager: Game music starting - activating all 5 layers (synced playback, progressive unmuting)")
@@ -846,25 +849,31 @@ class AudioManager {
     }
     
     func startProximitySound(starID: String, distance: CGFloat, on scene: SKScene) {
-        // If already active, do nothing (avoid action spam from per-frame calls)
-        guard !isProximityActive else { return }
-        
         guard !isSoundMuted && soundVolume > 0.0 else {
             stopAllProximitySounds()
             return
         }
         
-        // Node should be pre-created during loading, but fallback if not
+        // Cancel any pending stop FIRST (before early return)
+        proximityPendingStopWorkItem?.cancel()
+        proximityPendingStopWorkItem = nil
+        
+        // If already playing, don't restart (avoid per-frame spam)
+        if isProximityActive, let existingNode = proximityLoopNode, existingNode.parent === scene {
+            return
+        }
+        
+        // Use pre-created node (should exist from preloadSoundEffectsIntoCache)
         let node: SKAudioNode
         if let existing = proximityLoopNode {
             node = existing
-            // Cancel any fade-out in progress
-            node.removeAction(forKey: "proxFadeOut")
         } else {
             // Fallback: create if not pre-loaded (shouldn't happen, but safe)
             guard let filePath = soundEffectFilePaths["proximity"] else {
+                print("⚠️ AudioManager: Proximity sound file not found")
                 return
             }
+            print("⚠️ AudioManager: Proximity node not pre-loaded, creating on-demand (may cause frame drop)")
             let newNode = SKAudioNode(fileNamed: filePath)
             newNode.autoplayLooped = true
             newNode.isPositional = false
@@ -872,44 +881,92 @@ class AudioManager {
             node = newNode
         }
         
-        // Attach to scene if needed
         proximityLoopScene = scene
+        
+        // Add to scene if not already there
         if node.parent !== scene {
-            node.removeAllActions()
-            node.removeFromParent()
+            // Stop and remove from old scene if needed
+            if node.parent !== nil {
+                node.removeAllActions()
+                node.run(SKAction.stop())
+                node.removeFromParent()
+            }
+            // Start at 0 volume, add to scene (will auto-play), then fade in
+            node.run(SKAction.changeVolume(to: 0.0, duration: 0.0))
             scene.addChild(node)
-            node.run(SKAction.play())
         }
         
-        // Set to full volume (no distance-based attenuation)
         let targetVolume = soundVolume * sfxMix
-        node.removeAction(forKey: "proxVol")
-        node.run(SKAction.changeVolume(to: targetVolume, duration: 0.0), withKey: "proxVol")
+        let fadeIn = SKAction.changeVolume(to: targetVolume, duration: 0.15)
+        node.run(fadeIn, withKey: "proxFadeIn")
         
         isProximityActive = true
+        proximityStartTime = CACurrentMediaTime() // Record when it started
     }
     
     func stopProximitySound(starID: String) {
-        // No-op per-star; managed as single node
         stopAllProximitySounds()
     }
     
     func stopAllProximitySounds() {
-        guard let node = proximityLoopNode, isProximityActive else { return }
+        guard isProximityActive, let node = proximityLoopNode else { 
+            isProximityActive = false
+            proximityPendingStopWorkItem?.cancel()
+            proximityPendingStopWorkItem = nil
+            return 
+        }
         
+        let elapsed = CACurrentMediaTime() - proximityStartTime
+        
+        // If minimum play time hasn't elapsed, schedule stop for later
+        if elapsed < proximityMinPlayDuration {
+            let remainingTime = proximityMinPlayDuration - elapsed
+            
+            // Cancel any existing pending stop
+            proximityPendingStopWorkItem?.cancel()
+            
+            // Schedule stop after remaining time
+            let workItem = DispatchWorkItem { [weak self] in
+                guard let self = self, self.isProximityActive else { return }
+                self.isProximityActive = false
+                
+                guard let node = self.proximityLoopNode else { return }
+                
+                // Fade out then stop
+                node.removeAction(forKey: "proxFadeIn")
+                let fadeOut = SKAction.changeVolume(to: 0.0, duration: 0.2)
+                let stop = SKAction.stop()
+                let remove = SKAction.removeFromParent()
+                let sequence = SKAction.sequence([fadeOut, stop, remove])
+                node.run(sequence) {
+                    self.proximityLoopNode = nil
+                }
+                self.proximityPendingStopWorkItem = nil
+            }
+            
+            proximityPendingStopWorkItem = workItem
+            DispatchQueue.main.asyncAfter(deadline: .now() + remainingTime, execute: workItem)
+            return
+        }
+        
+        // Minimum time has elapsed, fade out then stop
         isProximityActive = false
         
-        // Fade out instead of hard stop
-        let fadeOut = SKAction.changeVolume(to: 0.0, duration: 0.3)
-        let stop = SKAction.run { [weak self] in
-            node.run(SKAction.stop())
-            node.removeFromParent()
-            // Keep proximityLoopNode around for reuse (pre-created during loading)
-            self?.proximityLoopScene = nil
+        // Cancel any pending stop
+        proximityPendingStopWorkItem?.cancel()
+        proximityPendingStopWorkItem = nil
+        
+        // Cancel any fade-in
+        node.removeAction(forKey: "proxFadeIn")
+        
+        // Fade out smoothly, then stop and remove
+        let fadeOut = SKAction.changeVolume(to: 0.0, duration: 0.2)
+        let stop = SKAction.stop()
+        let remove = SKAction.removeFromParent()
+        let sequence = SKAction.sequence([fadeOut, stop, remove])
+        node.run(sequence) { [weak self] in
+            self?.proximityLoopNode = nil
         }
-        let sequence = SKAction.sequence([fadeOut, stop])
-        node.removeAction(forKey: "proxVol")
-        node.run(sequence, withKey: "proxFadeOut")
     }
     
     private func playSoundEffect(_ key: String, on scene: SKScene, volumeMultiplier: Float = 1.0) {

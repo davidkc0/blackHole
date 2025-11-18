@@ -8,6 +8,7 @@
 import SpriteKit
 import GameplayKit
 import UIKit
+import AVFoundation
 
 class ActivePowerUpState {
     var activeType: PowerUpType?
@@ -100,6 +101,10 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     private var shrinkIndicatorFill: SKShapeNode?
     private var peakBlackHoleSize: CGFloat = 40.0  // Track the highest size achieved
     
+    // Achievement tracking (per-game)
+    private var hasReachedSize1000 = false
+    private var hasShrunkThisGame = false
+    
     private var mergedStarCount: Int = 0
     private var lastMergeTime: TimeInterval = 0
     private var sessionStartTime: TimeInterval = 0
@@ -175,6 +180,13 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         AudioManager.shared.updateMusicLayersForSize(blackHole.currentDiameter)
         
         // Removed positional audio listener (no panning for proximity)
+        
+        // Reset achievement tracking
+        hasReachedSize1000 = false
+        hasShrunkThisGame = false
+        
+        // Hide access point during gameplay
+        GameCenterManager.shared.hideAccessPoint()
     }
     
     private func setupPowerUpSystem() {
@@ -1112,6 +1124,14 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             
             print("📈 Growth: \(String(format: "%.0f", beforeSize))pt → \(String(format: "%.0f", afterSize))pt (+\(String(format: "%.1f", growthPercent))%)")
             
+            // Check size achievement
+            if blackHole.currentDiameter >= 1000 && !hasReachedSize1000 {
+                hasReachedSize1000 = true
+                GameCenterManager.shared.reportAchievement(
+                    identifier: GameCenterConstants.achievementReachSize1000
+                )
+            }
+            
             lastCorrectEatTime = CACurrentMediaTime()  // Track for grace period
             
             let multiplier = GameManager.shared.getScoreMultiplier(blackHoleDiameter: blackHole.currentDiameter)
@@ -1204,6 +1224,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
                 
                 let beforeSize = blackHole.currentDiameter
                 blackHole.shrinkByMultiplier(adjustedMultiplier)
+                hasShrunkThisGame = true
                 GameManager.shared.addScore(GameConstants.wrongColorPenalty)
                 
                 // Check for phase change (size regression)
@@ -2260,11 +2281,20 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             let blackHoleRadius = blackHole.currentDiameter / 2
             let edgeDistance = max(0, dist - starRadius - blackHoleRadius)
             let centerBasedThreshold = max(0, GameConstants.starWarningDistance - starRadius - blackHoleRadius)
-            // Scale edge threshold with star size (big stars warn earlier), cap to avoid overreach
-            let scaledEdgeThreshold = min(max(GameConstants.starWarningEdgeDistance, starRadius * 0.25), 220)
-            let threshold = max(scaledEdgeThreshold, centerBasedThreshold)
             
-            if !blackHole.canConsume(star) && edgeDistance < threshold {
+            // Percentage-based buffer scaled by star size with BH-awareness
+            let starBuffer = star.size.width * 0.15
+            let blackHoleBuffer = blackHoleRadius * 0.2
+            let dynamicEdgeThreshold = min(
+                max(GameConstants.starWarningEdgeDistance, starBuffer + blackHoleBuffer),
+                350
+            )
+            let threshold = max(dynamicEdgeThreshold, centerBasedThreshold)
+            
+            // Only warn if star is strictly larger than black hole (no wiggle room)
+            let isDangerous = !blackHole.canConsume(star)
+            
+            if isDangerous && edgeDistance < threshold {
                 // Track nearest dangerous star
                 if edgeDistance < nearestEdgeDistance {
                     nearestEdgeDistance = edgeDistance
@@ -2548,6 +2578,16 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     private func triggerGameOver() {
         isGameOver = true
         
+        // Check no-shrink achievement
+        if !hasShrunkThisGame && blackHole.currentDiameter > GameConstants.blackHoleMinDiameter {
+            GameCenterManager.shared.reportAchievement(
+                identifier: GameCenterConstants.achievementNoShrink
+            )
+        }
+        
+        // Show access point
+        GameCenterManager.shared.showAccessPoint()
+        
         // Update stats
         let sessionDuration = CACurrentMediaTime() - sessionStartTime
         GameStats.shared.updatePlayTime(seconds: sessionDuration)
@@ -2594,6 +2634,13 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             AdManager.shared.showInterstitialWithLoading(
                 from: viewController,
                 onAdDismissed: { [weak self] in
+                    // Reactivate audio session after ad
+                    do {
+                        try AVAudioSession.sharedInstance().setActive(true)
+                    } catch {
+                        print("⚠️ Failed to reactivate audio session after ad: \(error)")
+                    }
+                    
                     GameManager.shared.resetAdCounter()
                     self?.showGameOverUI()
                 },
@@ -2868,6 +2915,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         // Apply constant shrink
         let shrinkAmount = GameConstants.passiveShrinkRate * CGFloat(deltaTime)
         let newSize = max(GameConstants.blackHoleMinDiameter, blackHole.currentDiameter - shrinkAmount)
+        if newSize < blackHole.currentDiameter {
+            hasShrunkThisGame = true
+        }
         blackHole.updateSize(to: newSize)
         
         // Check for collapse
@@ -2917,6 +2967,14 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         AudioManager.shared.stopAllProximitySounds()
         HapticManager.shared.stopAllDangerProximityHaptics()
         AudioManager.shared.stopBackgroundMusic()
+        
+        // Reactivate audio session after ad interruption
+        do {
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            print("⚠️ Failed to reactivate audio session: \(error)")
+        }
+        
         AudioManager.shared.switchToMenuMusic()
         
         // Reset game state before returning to menu

@@ -1,0 +1,163 @@
+{
+  "meta" : {
+    "version" : "2024-11-15"
+  },
+  "resources" : {
+    "achievements" : [
+      {
+        "activityProperties" : {
+
+        },
+        "archived" : false,
+        "points" : 10,
+        "referenceName" : "Star Collector",
+        "repeatable" : false,
+        "showBeforeEarned" : true,
+        "vendorIdentifier" : "com.singularity.achievement.stars100"
+      },
+      {
+        "activityProperties" : {
+
+        },
+        "archived" : false,
+        "points" : 25,
+        "referenceName" : "Star Devourer",
+        "repeatable" : false,
+        "showBeforeEarned" : true,
+        "vendorIdentifier" : "com.singularity.achievement.stars1000"
+      },
+      {
+        "activityProperties" : {
+
+        },
+        "archived" : false,
+        "points" : 50,
+        "referenceName" : "Galactic Glutton",
+        "repeatable" : false,
+        "showBeforeEarned" : true,
+        "vendorIdentifier" : "com.singularity.achievement.stars10000"
+      },
+      {
+        "activityProperties" : {
+
+        },
+        "archived" : false,
+        "points" : 15,
+        "referenceName" : "White Dwarf Master",
+        "repeatable" : false,
+        "showBeforeEarned" : true,
+        "vendorIdentifier" : "com.singularity.achievement.whitedwarf100"
+      },
+      {
+        "activityProperties" : {
+
+        },
+        "archived" : false,
+        "points" : 20,
+        "referenceName" : "Blue Giant Master",
+        "repeatable" : false,
+        "showBeforeEarned" : true,
+        "vendorIdentifier" : "com.singularity.achievement.bluegiant100"
+      },
+      {
+        "activityProperties" : {
+
+        },
+        "archived" : false,
+        "points" : 10,
+        "referenceName" : "First Red Giant",
+        "repeatable" : false,
+        "showBeforeEarned" : true,
+        "vendorIdentifier" : "com.singularity.achievement.redgiant"
+      },
+      {
+        "activityProperties" : {
+
+        },
+        "archived" : false,
+        "points" : 15,
+        "referenceName" : "0.0001 Light Years",
+        "repeatable" : false,
+        "showBeforeEarned" : true,
+        "vendorIdentifier" : "com.singularity.achievement.playtime1hour"
+      },
+      {
+        "activityProperties" : {
+
+        },
+        "archived" : false,
+        "points" : 40,
+        "referenceName" : "0.001 Light Years",
+        "repeatable" : false,
+        "showBeforeEarned" : true,
+        "vendorIdentifier" : "com.singularity.achievement.playtime10hours"
+      },
+      {
+        "activityProperties" : {
+
+        },
+        "archived" : false,
+        "points" : 30,
+        "referenceName" : "Super Massive ",
+        "repeatable" : false,
+        "showBeforeEarned" : true,
+        "vendorIdentifier" : "com.singularity.achievement.size1000"
+      },
+      {
+        "activityProperties" : {
+
+        },
+        "archived" : false,
+        "points" : 35,
+        "referenceName" : "Perfect Run",
+        "repeatable" : false,
+        "showBeforeEarned" : true,
+        "vendorIdentifier" : "com.singularity.achievement.noshrink"
+      }
+    ],
+    "leaderboards" : [
+      {
+        "activityProperties" : {
+
+        },
+        "archived" : false,
+        "defaultFormatter" : "INTEGER",
+        "referenceName" : "High Score",
+        "scoreRangeEnd" : null,
+        "scoreRangeStart" : null,
+        "scoreSortType" : "DESC",
+        "submissionType" : "BEST_SCORE",
+        "vendorIdentifier" : "com.singularity.leaderboard.highscore",
+        "visibility" : "SHOW_FOR_ALL"
+      },
+      {
+        "activityProperties" : {
+
+        },
+        "archived" : false,
+        "defaultFormatter" : "INTEGER",
+        "referenceName" : "Total Stars",
+        "scoreRangeEnd" : null,
+        "scoreRangeStart" : null,
+        "scoreSortType" : "DESC",
+        "submissionType" : "BEST_SCORE",
+        "vendorIdentifier" : "com.singularity.leaderboard.totalstars",
+        "visibility" : "SHOW_FOR_ALL"
+      },
+      {
+        "activityProperties" : {
+
+        },
+        "archived" : false,
+        "defaultFormatter" : "ELAPSED_TIME_SECOND",
+        "referenceName" : "Longest Playtime",
+        "scoreRangeEnd" : null,
+        "scoreRangeStart" : null,
+        "scoreSortType" : "DESC",
+        "submissionType" : "BEST_SCORE",
+        "vendorIdentifier" : "com.singularity.leaderboard.playtime",
+        "visibility" : "SHOW_FOR_ALL"
+      }
+    ]
+  }
+}

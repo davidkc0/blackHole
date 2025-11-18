@@ -15,12 +15,12 @@
   ],
   "products" : [
     {
-      "displayPrice" : "0.99",
+      "displayPrice" : "2.99",
       "familyShareable" : false,
       "internalID" : "E9E47464",
       "localizations" : [
         {
-          "description" : "Remove banner and interstitial ads permanently.",
+          "description" : "Remove ads permanently",
           "displayName" : "Remove Ads",
           "locale" : "en_US"
         }
@@ -38,10 +38,10 @@
     "_failTransactionsEnabled" : false,
     "_locale" : "en_US",
     "_renewalBillingIssuesEnabled" : false,
+    "_storefront" : "USA",
     "_storeKitErrors" : [
 
     ],
-    "_storefront" : "USA",
     "_timeRate" : 0
   },
   "subscriptionGroups" : [

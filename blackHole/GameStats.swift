@@ -40,6 +40,8 @@ class GameStats {
         userDefaults.set(blueGiantsAbsorbed, forKey: "blueGiantsAbsorbed")
         userDefaults.set(orangeGiantsAbsorbed, forKey: "orangeGiantsAbsorbed")
         userDefaults.set(redSupergiantsAbsorbed, forKey: "redSupergiantsAbsorbed")
+        
+        submitToGameCenter()
     }
     
     func load() {
@@ -72,11 +74,13 @@ class GameStats {
         }
         
         save()
+        checkAchievements()
     }
     
     func updatePlayTime(seconds: TimeInterval) {
         totalPlayTime += seconds
         save()
+        checkAchievements()
     }
     
     func updateHighScore(score: Int) {
@@ -97,6 +101,69 @@ class GameStats {
             return String(format: "%d:%02d:%02d", hours, minutes, seconds)
         } else {
             return String(format: "%d:%02d", minutes, seconds)
+        }
+    }
+    
+    // MARK: - Game Center
+    
+    private func submitToGameCenter() {
+        GameCenterManager.shared.submitScore(
+            totalStarsAbsorbed,
+            to: GameCenterConstants.totalStarsLeaderboardID
+        )
+        
+        let playtimeSeconds = Int(totalPlayTime)
+        GameCenterManager.shared.submitScore(
+            playtimeSeconds,
+            to: GameCenterConstants.longestPlaytimeLeaderboardID
+        )
+    }
+    
+    func checkAchievements() {
+        // Star collection
+        if totalStarsAbsorbed >= 100 {
+            GameCenterManager.shared.reportAchievement(
+                identifier: GameCenterConstants.achievement100Stars
+            )
+        }
+        if totalStarsAbsorbed >= 1000 {
+            GameCenterManager.shared.reportAchievement(
+                identifier: GameCenterConstants.achievement1000Stars
+            )
+        }
+        if totalStarsAbsorbed >= 10000 {
+            GameCenterManager.shared.reportAchievement(
+                identifier: GameCenterConstants.achievement10000Stars
+            )
+        }
+        
+        // Star types
+        if whiteDwarfsAbsorbed >= 100 {
+            GameCenterManager.shared.reportAchievement(
+                identifier: GameCenterConstants.achievement100WhiteDwarfs
+            )
+        }
+        if blueGiantsAbsorbed >= 100 {
+            GameCenterManager.shared.reportAchievement(
+                identifier: GameCenterConstants.achievement100BlueGiants
+            )
+        }
+        if redSupergiantsAbsorbed >= 1 {
+            GameCenterManager.shared.reportAchievement(
+                identifier: GameCenterConstants.achievementRedGiant
+            )
+        }
+        
+        // Playtime
+        if totalPlayTime >= 3600 {  // 1 hour
+            GameCenterManager.shared.reportAchievement(
+                identifier: GameCenterConstants.achievement1HourPlaytime
+            )
+        }
+        if totalPlayTime >= 36000 {  // 10 hours
+            GameCenterManager.shared.reportAchievement(
+                identifier: GameCenterConstants.achievement10HoursPlaytime
+            )
         }
     }
 }
