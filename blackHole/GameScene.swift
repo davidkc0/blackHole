@@ -105,6 +105,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     private var hasReachedSize1000 = false
     private var hasShrunkThisGame = false
     
+    // Warning glow tracking (optimization to avoid per-frame calls)
+    private weak var currentWarningStar: Star?
+    
     private var mergedStarCount: Int = 0
     private var lastMergeTime: TimeInterval = 0
     private var sessionStartTime: TimeInterval = 0
@@ -1309,6 +1312,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             HapticManager.shared.stopDangerProximityHaptic(starID: starName)
             AudioManager.shared.stopProximitySound(starID: starName)
         }
+        // Clean up warning glow
+        star.hideWarningGlow()
+        
         // Track if it's a merged star for cleanup
         if star.isMergedStar {
             mergedStarCount = max(0, mergedStarCount - 1)
@@ -2303,7 +2309,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
                     nearestThreshold = threshold
                 }
             } else {
-                // star.hideWarningGlow()  // COMMENTED OUT - warning ring disabled
+                star.hideWarningGlow()
                 if let starName = star.name {
                     HapticManager.shared.stopDangerProximityHaptic(starID: starName)
                 }
@@ -2312,7 +2318,14 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         
         // Drive effects only for nearest star
         if let star = nearestStar, let starName = star.name {
-            // star.showWarningGlow()  // COMMENTED OUT - warning ring disabled
+            // Only show warning glow if it's a different star (optimization)
+            if currentWarningStar !== star {
+                // Different star - hide old, show new
+                currentWarningStar?.hideWarningGlow()
+                star.showWarningGlow()
+                currentWarningStar = star
+            }
+            // Same star - do nothing (already showing)
             
             if nearestEdgeDistance < GameConstants.starRimFlashDistance {
                 blackHole.retroRimLight?.run(SKAction.sequence([
@@ -2325,7 +2338,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             
             AudioManager.shared.startProximitySound(starID: starName, distance: nearestEdgeDistance, on: self)
         } else {
-            // No dangerous stars: stop global proximity
+            // No dangerous stars: hide warning and stop global proximity
+            currentWarningStar?.hideWarningGlow()
+            currentWarningStar = nil
             AudioManager.shared.stopAllProximitySounds()
         }
     }

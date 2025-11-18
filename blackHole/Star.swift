@@ -6,6 +6,7 @@
 //
 
 import SpriteKit
+import CoreGraphics
 
 class Star: SKSpriteNode {
     let starType: StarType
@@ -41,7 +42,7 @@ class Star: SKSpriteNode {
         setupPhysics(diameter: diameter)
         setupMultiLayerVisuals()
         // addRetroBloom()  // DISABLED - causes FPS drop
-        addRetroRimLight()
+        // Retro rim light removed - replaced with core glow for brighter, fuller appearance
         addInitialDrift()
         startAnimations()
     }
@@ -75,9 +76,12 @@ class Star: SKSpriteNode {
         // Layer 2: Inner Glow (2x core size, brighter)
         createInnerGlow()
         
-        // Layer 3: Core is the base sprite (already created)
+        // Layer 3: Core Glow Fill (1.4x core size, filled circle for fullness)
+        createCoreGlow()
         
-        // Layer 4: Corona particles (only for large stars)
+        // Layer 4: Core is the base sprite (already created)
+        
+        // Layer 5: Corona particles (only for large stars)
         if visualProfile.hasCorona {
             createCoronaParticles()
         }
@@ -89,7 +93,7 @@ class Star: SKSpriteNode {
         let texture = TextureCache.shared.getStarGlowTexture(type: starType, sizeBucket: sizeBucket)
         
         outerCorona = SKSpriteNode(texture: texture, size: CGSize(width: coronaSize, height: coronaSize))
-        outerCorona!.alpha = 0.15
+        outerCorona!.alpha = 0.2  // Increased from 0.15 for brighter appearance
         outerCorona!.blendMode = .add
         outerCorona!.zPosition = -2
         outerCorona!.name = "outerCorona"
@@ -102,11 +106,70 @@ class Star: SKSpriteNode {
         let texture = TextureCache.shared.getStarGlowTexture(type: starType, sizeBucket: sizeBucket)
         
         innerGlow = SKSpriteNode(texture: texture, size: CGSize(width: glowSize, height: glowSize))
-        innerGlow!.alpha = 0.5
+        innerGlow!.alpha = 0.65  // Increased from 0.5 for brighter appearance
         innerGlow!.blendMode = .add
         innerGlow!.zPosition = -1
         innerGlow!.name = "innerGlow"
         addChild(innerGlow!)
+    }
+    
+    private func createCoreGlow() {
+        // Core glow with inverse gradient: bright center fading to transparent edges
+        let glowSize = size.width * 1.4
+        let texture = generateCoreGlowTexture(color: starType.uiColor, size: glowSize)
+        let glow = SKSpriteNode(texture: texture, size: CGSize(width: glowSize, height: glowSize))
+        glow.alpha = 0.3
+        glow.blendMode = .add
+        glow.zPosition = 0  // Between inner glow (z: -1) and core (z: 0, default)
+        glow.name = "coreGlow"
+        addChild(glow)
+    }
+    
+    private func generateCoreGlowTexture(color: UIColor, size: CGFloat) -> SKTexture {
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: size, height: size))
+        
+        let image = renderer.image { context in
+            let center = CGPoint(x: size / 2, y: size / 2)
+            let radius = size / 2
+            
+            // Create radial gradient: bright center → star color → transparent edges
+            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            
+            // Bright center color (more intense version of star color)
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+            color.getRed(&r, green: &g, blue: &b, alpha: &a)
+            let brightCenter = UIColor(
+                red: min(1.0, r * 1.3),
+                green: min(1.0, g * 1.3),
+                blue: min(1.0, b * 1.3),
+                alpha: 0.8
+            )
+            
+            // Mid color (star color at medium opacity)
+            let midColor = color.withAlphaComponent(0.4)
+            
+            let colors = [
+                brightCenter.cgColor,
+                midColor.cgColor,
+                UIColor.clear.cgColor
+            ] as CFArray
+            let locations: [CGFloat] = [0.0, 0.4, 1.0]
+            
+            guard let gradient = CGGradient(colorsSpace: colorSpace, colors: colors, locations: locations) else {
+                return
+            }
+            
+            context.cgContext.drawRadialGradient(
+                gradient,
+                startCenter: center,
+                startRadius: 0,
+                endCenter: center,
+                endRadius: radius,
+                options: []
+            )
+        }
+        
+        return SKTexture(image: image)
     }
     
     private func createCoronaParticles() {
@@ -238,6 +301,21 @@ class Star: SKSpriteNode {
         )
     }
     
+    private func brightenStarColor(_ color: UIColor, intensity: CGFloat) -> UIColor {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        color.getRed(&r, green: &g, blue: &b, alpha: &a)
+        
+        // Scale each RGB component toward 1.0 to increase brightness
+        // Preserves color identity while making it more intense
+        let brightnessBoost = 1.0 + (intensity * 0.4)
+        return UIColor(
+            red: min(1.0, r * brightnessBoost),
+            green: min(1.0, g * brightnessBoost),
+            blue: min(1.0, b * brightnessBoost),
+            alpha: 1.0
+        )
+    }
+    
     private func startAnimations() {
         // Stagger start time to avoid synchronization
         let randomDelay = TimeInterval.random(in: 0...2.0)
@@ -337,11 +415,15 @@ class Star: SKSpriteNode {
         // Match the star's actual visual footprint (outer corona size + buffer)
         // Outer corona is 4x the core size, so radius is 2x core radius + buffer
         let glow = SKShapeNode(circleOfRadius: size.width + 10)
-        let isRedSupergiant = (starType == .redSupergiant)
-        glow.strokeColor = isRedSupergiant ? .white : .red
-        glow.lineWidth = isRedSupergiant ? 4 : 3
+        
+        // Use brighter shade of the star's own color instead of red
+        let starColor = starType.uiColor
+        let brighterColor = brightenStarColor(starColor, intensity: 0.4)
+        
+        glow.strokeColor = brighterColor
+        glow.lineWidth = size.width > 200 ? 4 : 3
         glow.fillColor = .clear
-        glow.glowWidth = isRedSupergiant ? 12 : 8
+        glow.glowWidth = size.width > 200 ? 12 : 8
         glow.alpha = 0.7
         glow.zPosition = 2
         glow.name = "warning"
@@ -357,8 +439,15 @@ class Star: SKSpriteNode {
     }
     
     func hideWarningGlow() {
-        warningGlow?.removeFromParent()
+        guard let glow = warningGlow else { return }
+        glow.removeAllActions()
+        glow.removeFromParent()
         warningGlow = nil
+    }
+    
+    deinit {
+        // Cleanup warning glow when star is deallocated
+        hideWarningGlow()
     }
     
     func addMergedStarEnhancement() {
