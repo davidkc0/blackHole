@@ -344,8 +344,12 @@ class AudioManager {
                 firstNode.run(SKAction.changeVolume(to: 0.0, duration: 0.0))
                 firstNode.run(SKAction.stop())
                 scene.addChild(firstNode)
-                // Remove immediately - audio system is now initialized
-                firstNode.removeFromParent()
+                // Remove after brief delay to allow audio system initialization
+                // Nodes are at volume 0 and stopped, so no sound will play
+                firstNode.run(SKAction.sequence([
+                    SKAction.wait(forDuration: 0.05),
+                    SKAction.removeFromParent()
+                ]))
             }
         }
         
@@ -357,7 +361,12 @@ class AudioManager {
             proximityNode.run(SKAction.changeVolume(to: 0.0, duration: 0.0))
             proximityNode.run(SKAction.stop())
             scene.addChild(proximityNode)
-            proximityNode.removeFromParent()
+            // Remove after brief delay to allow audio system initialization
+            // Node is at volume 0 and stopped, so no sound will play
+            proximityNode.run(SKAction.sequence([
+                SKAction.wait(forDuration: 0.05),
+                SKAction.removeFromParent()
+            ]))
         }
         
         print("✅ AudioManager: Audio nodes initialized on GameScene")

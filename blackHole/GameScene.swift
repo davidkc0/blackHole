@@ -2745,6 +2745,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         if !hasShownMovementTip {
             showTipBanner(text: "Touch and drag to move. Absorb stars that match the ring color.", duration: 5.0)
             UserDefaults.standard.set(true, forKey: "hasShownMovementTip")
+            hasShownMovementTip = true  // Set instance variable so shrink gauge tip can appear
         }
     }
     
@@ -2817,9 +2818,6 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
                 identifier: GameCenterConstants.achievementNoShrink
             )
         }
-        
-        // Show access point
-        GameCenterManager.shared.showAccessPoint()
         
         // Update stats
         let sessionDuration = CACurrentMediaTime() - sessionStartTime

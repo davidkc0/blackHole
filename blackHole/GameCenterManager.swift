@@ -45,7 +45,8 @@ class GameCenterManager: NSObject {
                 DispatchQueue.main.async {
                     GKAccessPoint.shared.location = .topTrailing
                     GKAccessPoint.shared.showHighlights = true
-                    GKAccessPoint.shared.isActive = true
+                    // Do not set isActive = true here, let scenes manage it
+                    // This prevents it from popping up during gameplay if auth is slow
                 }
                 
                 // Load achievements in background
