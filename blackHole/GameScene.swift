@@ -173,6 +173,11 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         // Initialize background star positions relative to camera
         updateBackgroundStars()
         
+        // CRITICAL: Re-initialize audio nodes on GameScene immediately
+        // This ensures SpriteKit audio system is ready before first sound plays
+        // Nodes were preloaded on GameLoadingScene but need to be initialized on GameScene
+        AudioManager.shared.initializeAudioNodesOnScene(self)
+        
         // Show movement tip on first play
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             self?.checkAndShowMovementTip()
@@ -1343,10 +1348,17 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
                 // Show wrong color tip
                 checkAndShowWrongColorTip()
                 
-                // Check for game over
+                // Check for game over (with safety check to prevent false triggers)
                 if blackHole.isAtMinimumSize() {
-                    gameOverReason = "Black hole shrunk too small"
-                    triggerGameOver()
+                    // Double-check that we're actually at minimum (prevents race conditions)
+                    let currentSize = blackHole.currentDiameter
+                    let minSize = GameConstants.blackHoleMinDiameter
+                    if currentSize <= minSize + 0.01 {
+                        gameOverReason = "Black hole shrunk too small"
+                        triggerGameOver()
+                    } else {
+                        print("⚠️ isAtMinimumSize() returned true but size (\(currentSize)) > min (\(minSize)), ignoring game over trigger")
+                    }
                 }
             }
         }
@@ -2450,18 +2462,35 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     // MARK: - Tip Banner System
     
     private func isInCameraView(_ position: CGPoint) -> Bool {
+        // Comprehensive guards to prevent freezes during initialization
         guard let camera = cameraNode else { return false }
         guard let view = self.view else { return false }
         
         let viewportSize = view.bounds.size
+        
+        // Check if view is properly initialized
+        guard viewportSize.width > 0 && viewportSize.height > 0 else {
+            return false
+        }
         
         // Quick distance check first - if far enough away, skip expensive conversion
         let dx = position.x - camera.position.x
         let dy = position.y - camera.position.y
         let worldDistance = sqrt(dx * dx + dy * dy)
         
+        // Guard against invalid distance calculations
+        guard worldDistance.isFinite && !worldDistance.isNaN else {
+            return false
+        }
+        
         // Approximate world-space viewport half-diagonal (accounting for camera scale)
         let cameraScale = camera.xScale
+        
+        // Check if camera scale is valid (prevents division by zero)
+        guard cameraScale > 0 && cameraScale.isFinite && !cameraScale.isNaN else {
+            return false
+        }
+        
         let worldHalfDiagonal = max(viewportSize.width, viewportSize.height) / (2.0 * cameraScale)
         
         // If clearly far enough, it's off-screen
@@ -2469,8 +2498,20 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             return false
         }
         
+        // Check if scene is in a valid state for coordinate conversion
+        guard self.scene != nil else {
+            return false
+        }
+        
         // Only do expensive conversion if position might be on-screen
         let worldPos = convert(position, to: camera)
+        
+        // Validate converted position
+        guard worldPos.x.isFinite && worldPos.y.isFinite &&
+              !worldPos.x.isNaN && !worldPos.y.isNaN else {
+            return false
+        }
+        
         let screenPos = CGPoint(
             x: worldPos.x + viewportSize.width / 2,
             y: worldPos.y + viewportSize.height / 2
@@ -2482,15 +2523,41 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     }
     
     private func ensurePositionOffScreen(_ position: CGPoint) -> CGPoint {
-        guard let camera = cameraNode, let view = self.view else { return position }
+        // Comprehensive guards to prevent freezes during initialization
+        guard let camera = cameraNode else {
+            print("⚠️ ensurePositionOffScreen: cameraNode is nil, returning original position")
+            return position
+        }
         
+        guard let view = self.view else {
+            print("⚠️ ensurePositionOffScreen: view is nil, returning original position")
+            return position
+        }
+        
+        // Check if view is properly initialized (has valid bounds)
         let viewportSize = view.bounds.size
-        let cameraScale = camera.xScale // Camera scale affects viewport in world space
+        guard viewportSize.width > 0 && viewportSize.height > 0 else {
+            print("⚠️ ensurePositionOffScreen: invalid viewport size, returning original position")
+            return position
+        }
+        
+        // Check if camera scale is valid (prevents division by zero)
+        let cameraScale = camera.xScale
+        guard cameraScale > 0 && cameraScale.isFinite && !cameraScale.isNaN else {
+            print("⚠️ ensurePositionOffScreen: invalid camera scale (\(cameraScale)), returning original position")
+            return position
+        }
         
         // Quick distance check first - if far enough away, skip expensive conversion
         let dx = position.x - camera.position.x
         let dy = position.y - camera.position.y
         let worldDistance = sqrt(dx * dx + dy * dy)
+        
+        // Guard against invalid distance calculations
+        guard worldDistance.isFinite && !worldDistance.isNaN else {
+            print("⚠️ ensurePositionOffScreen: invalid world distance, returning original position")
+            return position
+        }
         
         // Approximate world-space viewport half-diagonal (accounting for camera scale)
         let worldHalfDiagonal = max(viewportSize.width, viewportSize.height) / (2.0 * cameraScale)
@@ -2502,7 +2569,21 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         }
         
         // Only do expensive conversion if position might be on-screen
+        // Check if scene is in a valid state for coordinate conversion
+        guard self.scene != nil else {
+            print("⚠️ ensurePositionOffScreen: scene is nil, returning original position")
+            return position
+        }
+        
         let worldPos = convert(position, to: camera)
+        
+        // Validate converted position
+        guard worldPos.x.isFinite && worldPos.y.isFinite &&
+              !worldPos.x.isNaN && !worldPos.y.isNaN else {
+            print("⚠️ ensurePositionOffScreen: invalid converted position, returning original")
+            return position
+        }
+        
         let screenPos = CGPoint(
             x: worldPos.x + viewportSize.width / 2,
             y: worldPos.y + viewportSize.height / 2
@@ -2521,7 +2602,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         let centerDy = screenPos.y - viewportSize.height / 2
         let screenDistance = sqrt(centerDx * centerDx + centerDy * centerDy)
         
-        guard screenDistance > 0 else { return position }
+        guard screenDistance > 0 && screenDistance.isFinite && !screenDistance.isNaN else {
+            return position
+        }
         
         let angle = atan2(centerDy, centerDx)
         let margin: CGFloat = 50
@@ -2533,7 +2616,15 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         // Convert back to world coordinates (only one conversion per adjust)
         let newWorldX = newScreenX - viewportSize.width / 2
         let newWorldY = newScreenY - viewportSize.height / 2
+        
         let newWorldPos = convert(CGPoint(x: newWorldX, y: newWorldY), from: camera)
+        
+        // Validate final position
+        guard newWorldPos.x.isFinite && newWorldPos.y.isFinite &&
+              !newWorldPos.x.isNaN && !newWorldPos.y.isNaN else {
+            print("⚠️ ensurePositionOffScreen: invalid final position, returning original")
+            return position
+        }
         
         return newWorldPos
     }

@@ -129,6 +129,10 @@ class GameLoadingScene: SKScene {
     private func transitionToGame() {
         print("🎮 GameLoadingScene: Transitioning to GameScene...")
         
+        // CRITICAL: Remove preloaded audio nodes from loading scene before transition
+        // This ensures they're ready to be added to GameScene without blocking
+        AudioManager.shared.removePreloadedNodes(from: self)
+        
         let gameScene = GameScene(size: self.size)
         gameScene.scaleMode = self.scaleMode
         

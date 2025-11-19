@@ -74,7 +74,7 @@ class AudioManager {
     private var isSoundMuted = false
     // Curated mix multipliers (soundtrack-forward balance)
     private var musicMix: Float = 1.0
-    private var sfxMix: Float = 0.7
+    private var sfxMix: Float = 0.6
     
     // File Names (to be configured)
     // Menu music uses single track big_pad.wav (located in Music folder)
@@ -264,31 +264,105 @@ class AudioManager {
         }
     }
     
-    /// Preloads sound effects by loading them into memory (silently)
-    /// This helps prevent stutter on first use, but doesn't fully warm SpriteKit's cache
-    /// Note: SKAction.playSoundFileNamed can't be muted, so we load files into memory instead
+    /// Preloads sound effects by loading them into memory AND adding to scene
+    /// CRITICAL: Nodes must be added to scene during loading to initialize SpriteKit audio system
+    /// Adding nodes to scene for first time during gameplay causes main thread freeze
     func preloadSoundEffectsIntoCache(on scene: SKScene) {
-        print("🔊 AudioManager: Preparing sound effect nodes...")
+        print("🔊 AudioManager: Preparing sound effect nodes and adding to scene...")
         var createdPools = 0
+        var skippedPools = 0
         
         for (key, filePath) in soundEffectFilePaths {
             if ensureSFXNodePool(for: key, filePath: filePath) {
                 createdPools += 1
+                
+                // CRITICAL: Add first node from each pool to scene to initialize audio system
+                // This forces SpriteKit to load the audio file and initialize the audio system NOW
+                // Must happen during loading, not during gameplay
+                if let pool = sfxNodePools[key], let firstNode = pool.nodes.first {
+                    // Add to scene - this triggers audio file loading and system initialization
+                    firstNode.run(SKAction.changeVolume(to: 0.0, duration: 0.0))
+                    firstNode.run(SKAction.stop())
+                    scene.addChild(firstNode)
+                    // Keep node in scene during loading - it initializes the audio system
+                    // We'll remove it before transitioning to GameScene
+                }
+            } else {
+                skippedPools += 1
             }
         }
         
-        // Pre-create proximity sound node to avoid blocking during gameplay
+        // Pre-create proximity sound node and add to scene to initialize
         if let proximityPath = soundEffectFilePaths["proximity"] {
             let newNode = SKAudioNode(fileNamed: proximityPath)
             newNode.autoplayLooped = true
             newNode.isPositional = false
+            newNode.run(SKAction.changeVolume(to: 0.0, duration: 0.0))
+            newNode.run(SKAction.stop())
+            scene.addChild(newNode)
             proximityLoopNode = newNode
-            print("✅ AudioManager: Pre-created proximity audio node")
+            print("✅ AudioManager: Pre-created and initialized proximity audio node")
         }
         
-        print("✅ AudioManager: Prepared \(createdPools)/\(soundEffectFilePaths.count) sound effect pools")
+        print("✅ AudioManager: Prepared \(createdPools)/\(soundEffectFilePaths.count) sound effect pools (\(skippedPools) already existed) - all nodes initialized")
         prepareButtonPressSound()
     }
+    
+    /// Removes all preloaded nodes from the given scene (call before transitioning scenes)
+    func removePreloadedNodes(from scene: SKScene) {
+        // Remove all nodes from pools that are in this scene
+        for (_, pool) in sfxNodePools {
+            for node in pool.nodes {
+                if node.parent === scene {
+                    node.removeFromParent()
+                }
+            }
+        }
+        
+        // Remove proximity node if it's in this scene
+        if let proximityNode = proximityLoopNode, proximityNode.parent === scene {
+            proximityNode.removeFromParent()
+        }
+        
+        print("🔊 AudioManager: Removed preloaded nodes from scene")
+    }
+    
+    /// Initializes audio nodes on the given scene (call when GameScene is created)
+    /// This ensures SpriteKit audio system is ready before first sound plays
+    func initializeAudioNodesOnScene(_ scene: SKScene) {
+        print("🔊 AudioManager: Initializing audio nodes on GameScene...")
+        
+        // Add first node from each pool to scene to initialize audio system
+        // Files are already loaded, so this should be fast
+        for (key, pool) in sfxNodePools {
+            if let firstNode = pool.nodes.first {
+                // Ensure node is not in any scene
+                if firstNode.parent !== nil {
+                    firstNode.removeFromParent()
+                }
+                // Add to GameScene - this initializes audio system for this scene
+                firstNode.run(SKAction.changeVolume(to: 0.0, duration: 0.0))
+                firstNode.run(SKAction.stop())
+                scene.addChild(firstNode)
+                // Remove immediately - audio system is now initialized
+                firstNode.removeFromParent()
+            }
+        }
+        
+        // Initialize proximity node
+        if let proximityNode = proximityLoopNode {
+            if proximityNode.parent !== nil {
+                proximityNode.removeFromParent()
+            }
+            proximityNode.run(SKAction.changeVolume(to: 0.0, duration: 0.0))
+            proximityNode.run(SKAction.stop())
+            scene.addChild(proximityNode)
+            proximityNode.removeFromParent()
+        }
+        
+        print("✅ AudioManager: Audio nodes initialized on GameScene")
+    }
+    
     
     // MARK: - Audio Engine Initialization
     
@@ -806,15 +880,19 @@ class AudioManager {
     
     func startPowerUpLoopSound(on scene: SKScene) {
         guard !isSoundMuted && soundVolume > 0.0 else { return }
-        guard let filePath = soundEffectFilePaths["powerup"] else {
-            print("⚠️ AudioManager: Power-up loop sound file not found")
-            return
-        }
         
+        // Use existing node or create lazily (power-up is rare, acceptable to create on-demand)
+        // But prefer to pre-create during loading if possible
         let loopNode: SKAudioNode
         if let existingNode = powerUpLoopAudioNode {
             loopNode = existingNode
         } else {
+            guard let filePath = soundEffectFilePaths["powerup"] else {
+                print("⚠️ AudioManager: Power-up loop sound file not found")
+                return
+            }
+            // Create on-demand for power-up (acceptable since it's rare)
+            print("🔊 AudioManager: Creating power-up loop node on-demand")
             loopNode = SKAudioNode(fileNamed: filePath)
             loopNode.autoplayLooped = true
             loopNode.isPositional = false
@@ -873,7 +951,6 @@ class AudioManager {
                 print("⚠️ AudioManager: Proximity sound file not found")
                 return
             }
-            print("⚠️ AudioManager: Proximity node not pre-loaded, creating on-demand (may cause frame drop)")
             let newNode = SKAudioNode(fileNamed: filePath)
             newNode.autoplayLooped = true
             newNode.isPositional = false
@@ -990,11 +1067,17 @@ class AudioManager {
         let node = pool.nextNode()
         sfxNodePools[key] = pool
         
-        if node.parent !== scene {
+        // If node is already in a scene (from preloading), remove it first
+        if node.parent !== nil && node.parent !== scene {
             node.removeFromParent()
+        }
+        
+        // Add to current scene if not already there
+        if node.parent !== scene {
             scene.addChild(node)
         }
         
+        // Stop any existing playback, set volume, and play
         let stopAction = SKAction.stop()
         let setVolume = SKAction.changeVolume(to: targetVolume, duration: 0.0)
         let playAction = SKAction.play()
