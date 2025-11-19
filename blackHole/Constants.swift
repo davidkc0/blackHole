@@ -41,12 +41,12 @@ enum GameConstants {
     static let ringPulseScaleMax: CGFloat = 1.05
     
     // Stars - Dynamic spawning with acceleration
-    static let baseStarSpawnInterval: TimeInterval = 0.6       // Early game baseline
-    static let minStarSpawnInterval: TimeInterval = 0.15       // Late game minimum
-    static let spawnAccelerationThreshold: CGFloat = 200       // When acceleration begins
+    static let baseStarSpawnInterval: TimeInterval = 0.4       // Early game baseline (50% faster)
+    static let minStarSpawnInterval: TimeInterval = 0.12       // Late game minimum (faster)
+    static let spawnAccelerationThreshold: CGFloat = 120       // When acceleration begins (sooner)
     static let spawnAccelerationFactor: CGFloat = 400          // Rate of acceleration
     static let starSpawnInterval: TimeInterval = 0.6           // Legacy constant (kept for compatibility)
-    static let starMaxCount: Int = 72
+    static let starMaxCount: Int = 85                          // More stars on screen (~15% increase)
     static let starMinSpawnDistance: CGFloat = 100
     static let starSpawnAnimationDuration: TimeInterval = 0.2
     static let starFadeOutDuration: TimeInterval = 0.1
@@ -106,7 +106,7 @@ enum GameConstants {
     static let scoreStrokeWidth: CGFloat = -3
     
     // Passive Shrink System
-    static let passiveShrinkRate: CGFloat = 0.1        
+    static let passiveShrinkRate: CGFloat = 0.2        // Doubled from 0.1 for increased challenge
     static let passiveShrinkScaling: CGFloat = 0.0     // No scaling with size (constant rate)
     
     // Predictive Spawning
@@ -115,8 +115,8 @@ enum GameConstants {
     static let movementSpeedThreshold: CGFloat = 50.0 // Below this = stationary
     
     // Star Field System
-    static let starFieldMinInterval: TimeInterval = 45.0
-    static let starFieldMaxInterval: TimeInterval = 60.0
+    static let starFieldMinInterval: TimeInterval = 25.0      // More frequent (2x faster)
+    static let starFieldMaxInterval: TimeInterval = 35.0       // More frequent (2x faster)
     static let starFieldDensityMultiplier: CGFloat = 2.5 // 2.5x normal density
     static let starFieldRadius: CGFloat = 400.0
     static let starFieldChallengePct: CGFloat = 0.30 // 30% larger stars

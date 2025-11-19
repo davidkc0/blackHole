@@ -63,6 +63,11 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     private var starFieldManager: StarFieldManager!
     private var lastStarFieldSpawn: TimeInterval = 0
     
+    // Spawn clustering system
+    private var lastSpawnPosition: CGPoint?
+    private var clusterSpawnCount: Int = 0
+    private let maxClusterSize: Int = 3
+    
     private var starSpawnTimer: Timer?
     private var colorChangeTimer: Timer?
     private var colorChangeWarningTimer: Timer?
@@ -704,6 +709,29 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         }
     }
     
+    // MARK: - Spawn Clustering
+    
+    private func shouldSpawnCluster() -> Bool {
+        // 30% chance to start a cluster when spawning
+        return CGFloat.random(in: 0...1) < 0.3 && clusterSpawnCount == 0
+    }
+    
+    private func getClusterSpawnPosition() -> CGPoint? {
+        guard let lastPos = lastSpawnPosition, clusterSpawnCount > 0 else {
+            return nil
+        }
+        
+        // Spawn near last position (150-250pt away)
+        let angle = CGFloat.random(in: 0...(2 * .pi))
+        let distance = CGFloat.random(in: 150...250)
+        return CGPoint(
+            x: lastPos.x + cos(angle) * distance,
+            y: lastPos.y + sin(angle) * distance
+        )
+    }
+    
+    // MARK: - Game Logic
+    
     private func calculateSpawnInterval() -> TimeInterval {
         let size = blackHole.currentDiameter
         
@@ -737,6 +765,23 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         var validPosition: CGPoint?
         var attempts = 0
         
+        // Try cluster spawning first if we're in a cluster
+        if clusterSpawnCount > 0, let clusterPos = getClusterSpawnPosition() {
+            // Check if cluster position is valid
+            let minDistanceFromBlackHole = calculateMinSpawnDistance(for: star)
+            if distance(from: clusterPos, to: blackHole.position) > minDistanceFromBlackHole &&
+               isValidSpawnPosition(clusterPos, forStarSize: star.size.width) {
+                // Ensure cluster position is also off-screen (optimized - does cheap check first)
+                let offScreenPos = ensurePositionOffScreen(clusterPos)
+                validPosition = offScreenPos
+                clusterSpawnCount -= 1
+            } else {
+                // Cluster position invalid, break cluster
+                clusterSpawnCount = 0
+            }
+        }
+        
+        // If not clustering or cluster failed, use normal spawning logic
         while validPosition == nil && attempts < 10 {
             // Use predictive positioning for intelligent spawning
             let spawnPosition = predictiveEdgePosition()
@@ -755,6 +800,17 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             } else {
                 attempts += 1
             }
+        }
+        
+        // After finding valid position, check if we should start a new cluster
+        if validPosition != nil && clusterSpawnCount == 0 && shouldSpawnCluster() {
+            clusterSpawnCount = maxClusterSize
+            lastSpawnPosition = validPosition
+        }
+        
+        // Ensure star spawns off-screen (optimized - does cheap check first)
+        if let position = validPosition {
+            validPosition = ensurePositionOffScreen(position)
         }
         
         // If valid position found, spawn the star
@@ -2398,9 +2454,22 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         guard let view = self.view else { return false }
         
         let viewportSize = view.bounds.size
-        let cameraPos = camera.position
         
-        // Convert world position to screen position
+        // Quick distance check first - if far enough away, skip expensive conversion
+        let dx = position.x - camera.position.x
+        let dy = position.y - camera.position.y
+        let worldDistance = sqrt(dx * dx + dy * dy)
+        
+        // Approximate world-space viewport half-diagonal (accounting for camera scale)
+        let cameraScale = camera.xScale
+        let worldHalfDiagonal = max(viewportSize.width, viewportSize.height) / (2.0 * cameraScale)
+        
+        // If clearly far enough, it's off-screen
+        if worldDistance > worldHalfDiagonal + 100 {
+            return false
+        }
+        
+        // Only do expensive conversion if position might be on-screen
         let worldPos = convert(position, to: camera)
         let screenPos = CGPoint(
             x: worldPos.x + viewportSize.width / 2,
@@ -2410,6 +2479,63 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         // Check if position is within visible screen bounds (with some margin)
         return screenPos.x >= -50 && screenPos.x <= viewportSize.width + 50 &&
                screenPos.y >= -50 && screenPos.y <= viewportSize.height + 50
+    }
+    
+    private func ensurePositionOffScreen(_ position: CGPoint) -> CGPoint {
+        guard let camera = cameraNode, let view = self.view else { return position }
+        
+        let viewportSize = view.bounds.size
+        let cameraScale = camera.xScale // Camera scale affects viewport in world space
+        
+        // Quick distance check first - if far enough away, skip expensive conversion
+        let dx = position.x - camera.position.x
+        let dy = position.y - camera.position.y
+        let worldDistance = sqrt(dx * dx + dy * dy)
+        
+        // Approximate world-space viewport half-diagonal (accounting for camera scale)
+        let worldHalfDiagonal = max(viewportSize.width, viewportSize.height) / (2.0 * cameraScale)
+        let requiredDistance = worldHalfDiagonal + 100 // Extra margin
+        
+        // If already far enough, skip coordinate conversion
+        if worldDistance > requiredDistance {
+            return position
+        }
+        
+        // Only do expensive conversion if position might be on-screen
+        let worldPos = convert(position, to: camera)
+        let screenPos = CGPoint(
+            x: worldPos.x + viewportSize.width / 2,
+            y: worldPos.y + viewportSize.height / 2
+        )
+        
+        // Check if actually on-screen
+        let isOnScreen = screenPos.x >= -50 && screenPos.x <= viewportSize.width + 50 &&
+                         screenPos.y >= -50 && screenPos.y <= viewportSize.height + 50
+        
+        if !isOnScreen {
+            return position // Already off-screen, return as-is
+        }
+        
+        // Position is on-screen, push it off-screen
+        let centerDx = screenPos.x - viewportSize.width / 2
+        let centerDy = screenPos.y - viewportSize.height / 2
+        let screenDistance = sqrt(centerDx * centerDx + centerDy * centerDy)
+        
+        guard screenDistance > 0 else { return position }
+        
+        let angle = atan2(centerDy, centerDx)
+        let margin: CGFloat = 50
+        let minDistance = max(viewportSize.width, viewportSize.height) / 2 + margin
+        
+        let newScreenX = viewportSize.width / 2 + cos(angle) * minDistance
+        let newScreenY = viewportSize.height / 2 + sin(angle) * minDistance
+        
+        // Convert back to world coordinates (only one conversion per adjust)
+        let newWorldX = newScreenX - viewportSize.width / 2
+        let newWorldY = newScreenY - viewportSize.height / 2
+        let newWorldPos = convert(CGPoint(x: newWorldX, y: newWorldY), from: camera)
+        
+        return newWorldPos
     }
     
     private func showTipBanner(text: String, duration: TimeInterval) {

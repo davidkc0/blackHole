@@ -38,9 +38,9 @@ class StarFieldManager {
         // Select random pattern
         let pattern = selectStarFieldPattern()
         
-        // Calculate spawn position (1000-1500pt away from black hole)
+        // Calculate spawn position (600-800pt away from black hole - closer for on-screen visibility)
         let angle = CGFloat.random(in: 0...(2 * .pi))
-        let distance = CGFloat.random(in: 1000...1500)
+        let distance = CGFloat.random(in: 600...800)
         let spawnPosition = CGPoint(
             x: blackHolePosition.x + cos(angle) * distance,
             y: blackHolePosition.y + sin(angle) * distance
@@ -147,9 +147,9 @@ class StarFieldManager {
             }
             
         case .scattered:
-            // 15-20 stars spread across large area
-            let starCount = Int.random(in: 15...20)
-            let radius = GameConstants.starFieldRadius
+            // 18-25 stars spread across large area
+            let starCount = Int.random(in: 18...25)
+            let radius: CGFloat = 500  // Increased from 400 for better visibility
             
             for _ in 0..<starCount {
                 let angle = CGFloat.random(in: 0...(2 * .pi))

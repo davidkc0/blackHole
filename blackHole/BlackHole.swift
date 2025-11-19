@@ -290,11 +290,11 @@ class BlackHole: SKSpriteNode {
         // Calculate relative size (0.0 to 1.0, where 1.0 = star is same size as black hole)
         let relativeSize = starSize / currentDiameter
         
-        // NERFED growth: 1.47% to 6.6% based on relative size (increased by 5% again)
-        // Small stars (25% of black hole size) = 2.8% growth
-        // Medium stars (50% of black hole size) = 4.0% growth
-        // Large stars (75% of black hole size) = 5.3% growth
-        let baseGrowth = 0.01467428 + (relativeSize * 0.05135996)
+        // NERFED growth: ~1.32% to ~5.9% based on relative size (reduced by 10%)
+        // Small stars (25% of black hole size) = ~2.5% growth
+        // Medium stars (50% of black hole size) = ~3.6% growth
+        // Large stars (75% of black hole size) = ~4.8% growth
+        let baseGrowth = (0.01467428 + (relativeSize * 0.05135996)) * 0.9  // 10% reduction
         
         // Diminishing returns for very large black holes
         let sizePenalty = 1.0 / (1.0 + (currentDiameter / 600.0))
@@ -473,8 +473,10 @@ class BlackHole: SKSpriteNode {
     }
     
     func canConsume(_ star: Star) -> Bool {
-        // Black hole can only consume stars smaller than itself
-        return star.size.width < currentDiameter
+        // Black hole can consume stars smaller than itself, with 5% graze tolerance
+        // This prevents deaths from stars that are just barely too large
+        let tolerance = currentDiameter * 0.05  // 5% tolerance
+        return star.size.width < (currentDiameter + tolerance)
     }
     
     private func interpolateColor(from: UIColor, to: UIColor, progress: CGFloat) -> UIColor {
