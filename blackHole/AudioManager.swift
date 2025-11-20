@@ -81,7 +81,7 @@ class AudioManager {
     // File Names (to be configured)
     // Menu music uses single track big_pad.wav (located in Music folder)
     private let menuMusicFileNames = [
-        "big_pad"
+        "main_menu1"
     ]
     private let gameMusicFileNames = [
         "game_music_layer1", "game_music_layer2", "game_music_layer3",

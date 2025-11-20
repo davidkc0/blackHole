@@ -35,6 +35,7 @@ class Star: SKSpriteNode {
         let texture = TextureCache.shared.getStarCoreTexture(type: type, sizeBucket: sizeBucket)
         
         super.init(texture: texture, color: .clear, size: CGSize(width: diameter, height: diameter))
+        self.name = "star_\(UUID().uuidString)"
         
         // Get visual profile for this star
         self.visualProfile = VisualEffectProfile.profile(for: type, size: diameter)

@@ -199,7 +199,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         hasShrunkThisGame = false
         
         // Hide access point during gameplay
-        GameCenterManager.shared.hideAccessPoint()
+        GameCenterManager.shared.setAccessPointVisible(false, context: .gameplay)
     }
     
     private func setupPowerUpSystem() {
@@ -764,8 +764,6 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         let star = Star(type: starType)
         
         // Assign unique name for haptic tracking
-        star.name = "star_\(UUID().uuidString)"
-        
         // Try multiple positions to find valid spawn location
         var validPosition: CGPoint?
         var attempts = 0

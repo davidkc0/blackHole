@@ -15,6 +15,8 @@ class GameCenterManager: NSObject {
     
     private(set) var isAuthenticated = false
     private var loadedAchievements: [String: GKAchievement] = [:]
+    private var desiredVisibility: Bool = false
+    private var activeContext: AccessPointContext = .menu
     
     // Background queue for Game Center operations
     private let gcQueue = DispatchQueue(label: "com.singularity.gamecenter", qos: .utility)
@@ -34,6 +36,7 @@ class GameCenterManager: NSObject {
             if let error = error {
                 print("❌ Game Center error: \(error.localizedDescription)")
                 self.isAuthenticated = false
+                self.updateAccessPointVisibility()
                 return
             }
             
@@ -48,27 +51,35 @@ class GameCenterManager: NSObject {
                     // Do not set isActive = true here, let scenes manage it
                     // This prevents it from popping up during gameplay if auth is slow
                 }
+                self.updateAccessPointVisibility()
                 
                 // Load achievements in background
                 self.loadAchievements()
             } else {
                 print("⚠️ Game Center not authenticated")
                 self.isAuthenticated = false
+                self.updateAccessPointVisibility()
             }
         }
     }
     
     // MARK: - Access Point
     
-    func showAccessPoint() {
-        DispatchQueue.main.async {
-            GKAccessPoint.shared.isActive = true
-        }
+    enum AccessPointContext {
+        case menu
+        case gameplay
     }
     
-    func hideAccessPoint() {
+    func setAccessPointVisible(_ visible: Bool, context: AccessPointContext) {
+        desiredVisibility = visible
+        activeContext = context
+        updateAccessPointVisibility()
+    }
+    
+    private func updateAccessPointVisibility() {
         DispatchQueue.main.async {
-            GKAccessPoint.shared.isActive = false
+            let shouldBeActive = self.desiredVisibility && self.activeContext == .menu && self.isAuthenticated
+            GKAccessPoint.shared.isActive = shouldBeActive
         }
     }
     

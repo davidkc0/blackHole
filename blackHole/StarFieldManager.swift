@@ -69,8 +69,6 @@ class StarFieldManager {
         // Spawn each star
         for star in stars {
             // Assign unique name
-            star.name = "star_\(UUID().uuidString)"
-            
             // Fade in animation
             star.alpha = 0
             star.setScale(0.5)
