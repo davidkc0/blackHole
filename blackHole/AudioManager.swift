@@ -36,6 +36,7 @@ class AudioManager {
     
     // Sound Effects (stored as file paths, plus SKAudioNode pools for volume control)
     private var soundEffectFilePaths: [String: String] = [:]
+    private(set) var areSoundEffectsPreloaded = false
     
     private struct SFXNodePool {
         var nodes: [SKAudioNode]
@@ -50,6 +51,7 @@ class AudioManager {
     
     private var sfxNodePools: [String: SFXNodePool] = [:]
     private let sfxPoolSize = 3
+    private let sfxWarmUpDuration: TimeInterval = 0.06
     
     // Proximity Sound Management (single loop node, nearest-only)
     private var proximityLoopNode: SKAudioNode?
@@ -99,6 +101,8 @@ class AudioManager {
         "button_press": "button_press"
     ]
     
+    private let menuMusicLoadLock = NSLock()
+    
     // MARK: - Initialization
     
     private init() {
@@ -107,7 +111,11 @@ class AudioManager {
     
     // MARK: - Menu Music Preloading
     
-    func preloadMenuMusic() {
+    @discardableResult
+    func preloadMenuMusic() -> Bool {
+        menuMusicLoadLock.lock()
+        defer { menuMusicLoadLock.unlock() }
+        
         print("🎵 AudioManager: Preloading menu music (track: big_pad)...")
         menuMusicBuffers.removeAll()
         
@@ -115,6 +123,8 @@ class AudioManager {
         let fileName = menuMusicFileNames[0] // "big_pad"
         
         // Try OGG first, then WAV
+        var loadSucceeded = false
+        
         if let buffer = loadAudioFile(fileName: fileName, extensions: ["ogg", "wav"]) {
             menuMusicBuffers.append(buffer)
             
@@ -124,14 +134,18 @@ class AudioManager {
             let frameCount = Double(buffer.frameLength)
             loopDuration = frameCount / sampleRate
             print("✅ AudioManager: Menu music loaded (game_music_layer5), loop duration: \(String(format: "%.2f", loopDuration))s")
+            loadSucceeded = true
         } else {
             print("⚠️ AudioManager: Failed to load menu music: \(fileName)")
         }
         
-        if menuMusicBuffers.count == 1 {
+        if loadSucceeded && menuMusicBuffers.count == 1 {
             print("✅ AudioManager: Menu music loaded (single layer)")
+            return true
         } else {
+            menuMusicBuffers.removeAll()
             print("⚠️ AudioManager: Failed to load menu music")
+            return false
         }
     }
     
@@ -184,9 +198,15 @@ class AudioManager {
     
     // MARK: - Sound Effects Preloading
     
-    func preloadSoundEffects() {
+    func preloadSoundEffects(forceReload: Bool = false) {
+        if areSoundEffectsPreloaded && !forceReload {
+            print("ℹ️ AudioManager: Sound effects already preloaded - skipping")
+            return
+        }
+        
         print("🔊 AudioManager: Preloading sound effects...")
         soundEffectFilePaths.removeAll()
+        areSoundEffectsPreloaded = false
         
         for (key, fileName) in soundEffectFileNames {
             let extensions = ["wav", "mp3", "caf", "aiff", "m4a", "aac"]
@@ -213,7 +233,8 @@ class AudioManager {
             }
         }
         
-        print("✅ AudioManager: Loaded \(soundEffectFilePaths.count)/10 sound effect paths")
+        areSoundEffectsPreloaded = !soundEffectFilePaths.isEmpty
+        print("✅ AudioManager: Loaded \(soundEffectFilePaths.count)/\(soundEffectFileNames.count) sound effect paths")
     }
     
     @discardableResult
@@ -268,43 +289,61 @@ class AudioManager {
     /// CRITICAL: Nodes must be added to scene during loading to initialize SpriteKit audio system
     /// Adding nodes to scene for first time during gameplay causes main thread freeze
     func preloadSoundEffectsIntoCache(on scene: SKScene) {
+        guard !soundEffectFilePaths.isEmpty else {
+            print("⚠️ AudioManager: Cannot cache SFX nodes - sound effects not preloaded yet")
+            return
+        }
+        
         print("🔊 AudioManager: Preparing sound effect nodes and adding to scene...")
         var createdPools = 0
-        var skippedPools = 0
+        var reattachedPools = 0
+        let baseVolume = isSoundMuted ? 0.0 : (soundVolume * sfxMix)
         
         for (key, filePath) in soundEffectFilePaths {
-            if ensureSFXNodePool(for: key, filePath: filePath) {
+            let poolCreated = ensureSFXNodePool(for: key, filePath: filePath)
+            if poolCreated {
                 createdPools += 1
-                
-                // CRITICAL: Add first node from each pool to scene to initialize audio system
-                // This forces SpriteKit to load the audio file and initialize the audio system NOW
-                // Must happen during loading, not during gameplay
-                if let pool = sfxNodePools[key], let firstNode = pool.nodes.first {
-                    // Add to scene - this triggers audio file loading and system initialization
-                    firstNode.run(SKAction.changeVolume(to: 0.0, duration: 0.0))
-                    firstNode.run(SKAction.stop())
-                    scene.addChild(firstNode)
-                    // Keep node in scene during loading - it initializes the audio system
-                    // We'll remove it before transitioning to GameScene
-                }
             } else {
-                skippedPools += 1
+                reattachedPools += 1
             }
+            
+            guard let pool = sfxNodePools[key], let firstNode = pool.nodes.first else { continue }
+            
+            if firstNode.parent !== nil && firstNode.parent !== scene {
+                firstNode.removeFromParent()
+            }
+            if firstNode.parent !== scene {
+                scene.addChild(firstNode)
+            }
+            
+            warmUpAudioNode(firstNode, finalVolume: baseVolume)
         }
         
-        // Pre-create proximity sound node and add to scene to initialize
+        // Pre-create or reuse proximity sound node and add to scene to initialize
         if let proximityPath = soundEffectFilePaths["proximity"] {
-            let newNode = SKAudioNode(fileNamed: proximityPath)
-            newNode.autoplayLooped = true
-            newNode.isPositional = false
-            newNode.run(SKAction.changeVolume(to: 0.0, duration: 0.0))
-            newNode.run(SKAction.stop())
-            scene.addChild(newNode)
-            proximityLoopNode = newNode
-            print("✅ AudioManager: Pre-created and initialized proximity audio node")
+            let node: SKAudioNode
+            if let existing = proximityLoopNode {
+                node = existing
+            } else {
+                let newNode = SKAudioNode(fileNamed: proximityPath)
+                newNode.autoplayLooped = true
+                newNode.isPositional = false
+                proximityLoopNode = newNode
+                node = newNode
+            }
+            
+            if node.parent !== nil && node.parent !== scene {
+                node.removeFromParent()
+            }
+            if node.parent !== scene {
+                scene.addChild(node)
+            }
+            
+            warmUpAudioNode(node, finalVolume: 0.0)
+            print("✅ AudioManager: Proximity audio node initialized on loading scene")
         }
         
-        print("✅ AudioManager: Prepared \(createdPools)/\(soundEffectFilePaths.count) sound effect pools (\(skippedPools) already existed) - all nodes initialized")
+        print("✅ AudioManager: Prepared \(createdPools) new / \(reattachedPools) existing sound effect pools - nodes warmed on scene")
         prepareButtonPressSound()
     }
     
@@ -314,6 +353,8 @@ class AudioManager {
         for (_, pool) in sfxNodePools {
             for node in pool.nodes {
                 if node.parent === scene {
+                    node.removeAllActions()
+                    node.run(SKAction.stop())
                     node.removeFromParent()
                 }
             }
@@ -321,6 +362,8 @@ class AudioManager {
         
         // Remove proximity node if it's in this scene
         if let proximityNode = proximityLoopNode, proximityNode.parent === scene {
+            proximityNode.removeAllActions()
+            proximityNode.run(SKAction.stop())
             proximityNode.removeFromParent()
         }
         
@@ -334,23 +377,13 @@ class AudioManager {
         
         // Add first node from each pool to scene to initialize audio system
         // Files are already loaded, so this should be fast
-        for (key, pool) in sfxNodePools {
-            if let firstNode = pool.nodes.first {
-                // Ensure node is not in any scene
-                if firstNode.parent !== nil {
-                    firstNode.removeFromParent()
-                }
-                // Add to GameScene - this initializes audio system for this scene
-                firstNode.run(SKAction.changeVolume(to: 0.0, duration: 0.0))
-                firstNode.run(SKAction.stop())
-                scene.addChild(firstNode)
-                // Remove after brief delay to allow audio system initialization
-                // Nodes are at volume 0 and stopped, so no sound will play
-                firstNode.run(SKAction.sequence([
-                    SKAction.wait(forDuration: 0.05),
-                    SKAction.removeFromParent()
-                ]))
+        for (_, pool) in sfxNodePools {
+            guard let firstNode = pool.nodes.first else { continue }
+            if firstNode.parent !== nil {
+                firstNode.removeFromParent()
             }
+            scene.addChild(firstNode)
+            warmUpAudioNode(firstNode, finalVolume: 0.0, removeFromParentAfterWarmUp: true)
         }
         
         // Initialize proximity node
@@ -358,15 +391,8 @@ class AudioManager {
             if proximityNode.parent !== nil {
                 proximityNode.removeFromParent()
             }
-            proximityNode.run(SKAction.changeVolume(to: 0.0, duration: 0.0))
-            proximityNode.run(SKAction.stop())
             scene.addChild(proximityNode)
-            // Remove after brief delay to allow audio system initialization
-            // Node is at volume 0 and stopped, so no sound will play
-            proximityNode.run(SKAction.sequence([
-                SKAction.wait(forDuration: 0.05),
-                SKAction.removeFromParent()
-            ]))
+            warmUpAudioNode(proximityNode, finalVolume: 0.0, removeFromParentAfterWarmUp: true)
         }
         
         print("✅ AudioManager: Audio nodes initialized on GameScene")
@@ -681,8 +707,8 @@ class AudioManager {
     
     // Switch to menu music
     func switchToMenuMusic() {
-        guard !menuMusicBuffers.isEmpty else {
-            print("⚠️ AudioManager: Menu music buffers not loaded")
+        guard ensureMenuMusicBuffersLoaded() else {
+            print("❌ AudioManager: Menu music buffers unavailable - cannot switch to menu music")
             return
         }
         
@@ -1177,6 +1203,35 @@ class AudioManager {
             let volume = isSoundMuted ? 0.0 : (soundVolume * sfxMix)
             loopNode.run(SKAction.changeVolume(to: volume, duration: 0.05))
         }
+    }
+    
+    private func warmUpAudioNode(_ node: SKAudioNode, finalVolume: Float, removeFromParentAfterWarmUp: Bool = false) {
+        node.removeAllActions()
+        var actions: [SKAction] = [
+            SKAction.changeVolume(to: 0.0, duration: 0.0),
+            SKAction.stop(),
+            SKAction.play(),
+            SKAction.wait(forDuration: sfxWarmUpDuration),
+            SKAction.stop(),
+            SKAction.changeVolume(to: finalVolume, duration: 0.0)
+        ]
+        
+        if removeFromParentAfterWarmUp {
+            actions.append(SKAction.removeFromParent())
+        }
+        
+        node.run(SKAction.sequence(actions), withKey: "AudioWarmUp")
+    }
+    
+    private func ensureMenuMusicBuffersLoaded() -> Bool {
+        if menuMusicBuffers.isEmpty {
+            print("ℹ️ AudioManager: Menu music buffers empty, attempting reload now...")
+            let success = preloadMenuMusic()
+            if !success {
+                return false
+            }
+        }
+        return !menuMusicBuffers.isEmpty
     }
     
     // MARK: - Helper Methods

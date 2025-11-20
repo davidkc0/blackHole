@@ -67,7 +67,7 @@ class GameLoadingScene: SKScene {
         label.run(SKAction.repeatForever(sequence))
     }
     
-    /// Loads game assets sequentially: haptics first, then textures
+    /// Loads game assets with haptic warm-up first, then textures/music/SFX in parallel
     private func loadGameAssets() {
         guard !isTransitioning else { return }
         isTransitioning = true
@@ -84,30 +84,45 @@ class GameLoadingScene: SKScene {
             
             // Keep UI in "LOADING" state while assets warm up
             
-            // Step 2: Load game textures, game music, and sound effects in parallel (background threads)
-            DispatchQueue.global(qos: .userInitiated).async {
-                print("🎮 Preloading game textures (29s operation)...")
-                TextureCache.shared.preloadAllTextures()
-                print("✅ Game textures preloaded")
+            // Step 2: Load game textures, music, and sound effects in parallel
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                let assetGroup = DispatchGroup()
                 
-                // Load game music (if different from menu music) OR reuse menu music
-                print("🎵 Preloading game music...")
-                AudioManager.shared.preloadGameMusic()
-                print("✅ Game music preloaded")
+                assetGroup.enter()
+                DispatchQueue.global(qos: .userInitiated).async {
+                    print("🎮 Preloading game textures (29s operation)...")
+                    TextureCache.shared.preloadAllTextures()
+                    print("✅ Game textures preloaded")
+                    assetGroup.leave()
+                }
                 
-                // Load sound effects
-                print("🔊 Preloading sound effects...")
-                AudioManager.shared.preloadSoundEffects()
-                print("✅ Sound effects preloaded")
+                assetGroup.enter()
+                DispatchQueue.global(qos: .userInitiated).async {
+                    print("🎵 Preloading game music...")
+                    AudioManager.shared.preloadGameMusic()
+                    print("✅ Game music preloaded")
+                    assetGroup.leave()
+                }
                 
-                // Step 3: Initialize audio engine if not already initialized (main thread - fast, ~10-50ms)
-                DispatchQueue.main.async {
+                assetGroup.enter()
+                DispatchQueue.global(qos: .userInitiated).async {
+                    print("🔊 Preloading sound effects...")
+                    AudioManager.shared.preloadSoundEffects()
+                    print("✅ Sound effects preloaded")
+                    assetGroup.leave()
+                }
+                
+                assetGroup.wait()
+                
+                // Step 3: Initialize audio pipeline on main thread
+                DispatchQueue.main.async { [weak self] in
+                    guard let self = self else { return }
+                    
                     if !AudioManager.shared.isAudioEngineInitialized {
                         AudioManager.shared.initializeAudioEngine()
                     }
                     
-                    // Step 4: Preload sound effects into SpriteKit cache (main thread - uses SKScene)
-                    // This prevents stutter on first sound effect playback
+                    // Preload sound effects into SpriteKit cache (main thread - uses SKScene)
                     AudioManager.shared.preloadSoundEffectsIntoCache(on: self)
                     
                     // Stop animation and set ready text

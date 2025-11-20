@@ -17,6 +17,9 @@ class LoadingScene: SKScene {
     private var isAdMobReady = false
     private var isMenuTexturesReady = false
     private var isMenuMusicReady = false
+    private var isMenuMusicLoading = false
+    private var isSoundEffectsReady = false
+    private var isSoundEffectsLoading = false
     private var isTransitioning = false
     
     override func didMove(to view: SKView) {
@@ -37,6 +40,7 @@ class LoadingScene: SKScene {
         attachDotsOverlay(text: "LOADING", animated: true)
         
         AudioManager.shared.prepareButtonPressSound()
+        startSoundEffectsPreloadIfNeeded()
         
         // Check if ads are removed
         if IAPManager.shared.checkPurchaseStatus() {
@@ -126,13 +130,28 @@ class LoadingScene: SKScene {
     private func checkIfReadyToProceed() {
         // If AdMob and textures are ready, start menu music loading if not already started
         if isAdMobReady && isMenuTexturesReady && !isMenuMusicReady {
+            guard !isMenuMusicLoading else {
+                return
+            }
+            isMenuMusicLoading = true
             // Start menu music preloading (only once)
             print("🎵 LoadingScene: Preloading menu music...")
-            DispatchQueue.global(qos: .userInitiated).async {
-                AudioManager.shared.preloadMenuMusic()
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                let loadSucceeded = AudioManager.shared.preloadMenuMusic()
                 
                 // Initialize audio engine on main thread (fast)
-                DispatchQueue.main.async {
+                DispatchQueue.main.async { [weak self] in
+                    guard let self = self else { return }
+                    self.isMenuMusicLoading = false
+                    
+                    guard loadSucceeded else {
+                        print("⚠️ LoadingScene: Menu music preload failed, retrying...")
+                        self.run(SKAction.wait(forDuration: 0.5)) { [weak self] in
+                            self?.checkIfReadyToProceed()
+                        }
+                        return
+                    }
+                    
                     AudioManager.shared.initializeAudioEngine()
                     NotificationCenter.default.post(name: NSNotification.Name("MenuMusicReady"), object: nil)
                 }
@@ -141,7 +160,7 @@ class LoadingScene: SKScene {
         }
         
         // 4. Check if all items are checked off AND we're not already transitioning
-        guard isAdMobReady, isMenuTexturesReady, isMenuMusicReady, !isTransitioning else {
+        guard isAdMobReady, isMenuTexturesReady, isMenuMusicReady, isSoundEffectsReady, !isTransitioning else {
             return
         }
         
@@ -198,7 +217,8 @@ class LoadingScene: SKScene {
                                 print("⚠️ LoadingScene: Ad pre-load failed. Transitioning to menu anyway.")
                             }
                             
-                            self.removeDotsOverlay()
+                        AudioManager.shared.removePreloadedNodes(from: self)
+                        self.removeDotsOverlay()
                             let transition = SKTransition.fade(withDuration: 0.5)
                             self.view?.presentScene(menuScene, transition: transition)
                             
@@ -234,6 +254,7 @@ class LoadingScene: SKScene {
                 
                 // Brief delay before transition
                 self.run(SKAction.wait(forDuration: 0.5)) {
+                    AudioManager.shared.removePreloadedNodes(from: self)
                     self.removeDotsOverlay()
                     let transition = SKTransition.fade(withDuration: 0.5)
                     self.view?.presentScene(menuScene, transition: transition)
@@ -247,6 +268,7 @@ class LoadingScene: SKScene {
     deinit {
         NotificationCenter.default.removeObserver(self)
         dotsOverlay?.removeFromSuperviewAnimated()
+        AudioManager.shared.removePreloadedNodes(from: self)
     }
 
     private func attachDotsOverlay(text: String, animated: Bool) {
@@ -264,6 +286,31 @@ class LoadingScene: SKScene {
     private func removeDotsOverlay() {
         dotsOverlay?.removeFromSuperviewAnimated()
         dotsOverlay = nil
+    }
+    
+    private func startSoundEffectsPreloadIfNeeded() {
+        guard !isSoundEffectsReady, !isSoundEffectsLoading else { return }
+        isSoundEffectsLoading = true
+        
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            AudioManager.shared.preloadSoundEffects()
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+                AudioManager.shared.preloadSoundEffectsIntoCache(on: self)
+                self.isSoundEffectsReady = AudioManager.shared.areSoundEffectsPreloaded
+                self.isSoundEffectsLoading = false
+                if self.isSoundEffectsReady {
+                    print("✅ LoadingScene: Sound effects warmed and ready")
+                    self.checkIfReadyToProceed()
+                } else {
+                    print("⚠️ LoadingScene: Sound effects failed to warm - will retry")
+                    self.run(SKAction.wait(forDuration: 0.5)) { [weak self] in
+                        self?.startSoundEffectsPreloadIfNeeded()
+                    }
+                    return
+                }
+            }
+        }
     }
 }
 

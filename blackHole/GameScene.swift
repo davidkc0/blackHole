@@ -772,16 +772,15 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         
         // Try cluster spawning first if we're in a cluster
         if clusterSpawnCount > 0, let clusterPos = getClusterSpawnPosition() {
-            // Check if cluster position is valid
-            let minDistanceFromBlackHole = calculateMinSpawnDistance(for: star)
-            if distance(from: clusterPos, to: blackHole.position) > minDistanceFromBlackHole &&
-               isValidSpawnPosition(clusterPos, forStarSize: star.size.width) {
-                // Ensure cluster position is also off-screen (optimized - does cheap check first)
+            if isSpawnPositionValid(clusterPos, for: star) {
                 let offScreenPos = ensurePositionOffScreen(clusterPos)
-                validPosition = offScreenPos
-                clusterSpawnCount -= 1
+                if isSpawnPositionValid(offScreenPos, for: star) {
+                    validPosition = offScreenPos
+                    clusterSpawnCount -= 1
+                } else {
+                    clusterSpawnCount = 0
+                }
             } else {
-                // Cluster position invalid, break cluster
                 clusterSpawnCount = 0
             }
         }
@@ -791,16 +790,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             // Use predictive positioning for intelligent spawning
             let spawnPosition = predictiveEdgePosition()
             
-            // Check 1: Distance from black hole
-            let minDistanceFromBlackHole = calculateMinSpawnDistance(for: star)
-            guard distance(from: spawnPosition, to: blackHole.position) > minDistanceFromBlackHole else {
-                attempts += 1
-                continue
-            }
-            
-            // Check 2: Distance from other large stars (prevents clustering)
-            // Skip this check for red supergiants - they're rare enough (5-40% spawn rate)
-            if starType == .redSupergiant || isValidSpawnPosition(spawnPosition, forStarSize: star.size.width) {
+            if isSpawnPositionValid(spawnPosition, for: star) {
                 validPosition = spawnPosition
             } else {
                 attempts += 1
@@ -815,7 +805,12 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         
         // Ensure star spawns off-screen (optimized - does cheap check first)
         if let position = validPosition {
-            validPosition = ensurePositionOffScreen(position)
+            let adjustedPosition = ensurePositionOffScreen(position)
+            if isSpawnPositionValid(adjustedPosition, for: star) {
+                validPosition = adjustedPosition
+            } else {
+                validPosition = nil
+            }
         }
         
         // If valid position found, spawn the star
@@ -839,20 +834,35 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         if starSize <= 100 {
             multiplier = 3.0      // Small stars: 3x distance
         } else if starSize <= 200 {
-            multiplier = 4.0      // Medium stars: 4x distance  
+            multiplier = 4.0      // Medium stars: 4x distance
         } else if starSize <= 400 {
             multiplier = 5.0      // Large stars: 5x distance
         } else {
             multiplier = 6.0      // Giant stars: 6x distance
         }
         
-        let calculatedDistance = starSize * multiplier
+        // Account for massive visual glow on red supergiants so coronas never overlap the player
+        let visualRadius: CGFloat = (star.starType == .redSupergiant) ? starSize * 2.0 : starSize / 2.0
+        let calculatedDistance = visualRadius + (starSize * multiplier)
         
-        // Cap max distance at 800pt so Red Supergiants can actually spawn
-        // (spawn system places stars ~526pt from black hole)
-        let maxAllowedDistance: CGFloat = 800
+        // Red supergiants must spawn much farther away; regular stars keep legacy bounds
+        let minDistance: CGFloat = star.starType == .redSupergiant ? 1200 : GameConstants.starMinSpawnDistance
+        let maxAllowedDistance: CGFloat = star.starType == .redSupergiant ? 2000 : 800
         
-        return max(GameConstants.starMinSpawnDistance, min(calculatedDistance, maxAllowedDistance))
+        return max(minDistance, min(calculatedDistance, maxAllowedDistance))
+    }
+    
+    private func isSpawnPositionValid(_ position: CGPoint, for star: Star) -> Bool {
+        let minDistance = calculateMinSpawnDistance(for: star)
+        guard distance(from: position, to: blackHole.position) > minDistance else {
+            return false
+        }
+        
+        if star.starType != .redSupergiant && !isValidSpawnPosition(position, forStarSize: star.size.width) {
+            return false
+        }
+        
+        return true
     }
     
     private func isValidSpawnPosition(_ position: CGPoint, forStarSize size: CGFloat) -> Bool {
