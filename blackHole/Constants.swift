@@ -90,7 +90,7 @@ enum GameConstants {
     static let minMergeSizeRequirement: CGFloat = 20
     static let mergeDistanceFromBlackHole: CGFloat = 100
     static let mergedStarPointsMultiplier: Double = 1.5
-    static let enableStarMerging: Bool = true
+    static let enableStarMerging: Bool = true   // Re-enable merging; off-screen merges will be gated in GameScene
     static let maxMergesPerStar: Int = 3  // Allow stars to merge up to 3 times
     
     // Orbital Interaction (when max merge limit reached)

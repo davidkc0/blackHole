@@ -116,6 +116,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     private var mergedStarCount: Int = 0
     private var lastMergeTime: TimeInterval = 0
     private var sessionStartTime: TimeInterval = 0
+    private var activeOrbitalInteractions: Int = 0  // Track concurrent orbital interactions
     
     // Touch tracking for preventing accidental touches
     private var isBlackHoleBeingMoved = false
@@ -125,6 +126,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     private var recentFrameTimes: [TimeInterval] = []
     private var lastFrameTime: TimeInterval = 0
     private var performanceMode: PerformanceMode = .high
+    private var starGravityFrameSkip: Int = 0
     
     enum PerformanceMode {
         case high, medium, low
@@ -1405,6 +1407,18 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     private func handleStarMerge(star1: Star, star2: Star) {
         let currentTime = CACurrentMediaTime()
         
+        // NEW: Only allow merges when the interaction is visible to the player.
+        // Use the midpoint between the two stars to decide if it's on camera.
+        let mergePosition = CGPoint(
+            x: (star1.position.x + star2.position.x) * 0.5,
+            y: (star1.position.y + star2.position.y) * 0.5
+        )
+        guard isInCameraView(mergePosition) else {
+            // Off-screen interaction: skip merge/orbital logic entirely.
+            // Let physics handle them as normal stars without extra work.
+            return
+        }
+        
         // Safeguard 1: Check merged star limit
         guard mergedStarCount < GameConstants.maxMergedStars else {
             print("🚫 Merge blocked: max merged stars reached - initiating orbital interaction")
@@ -1468,11 +1482,10 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         
         print("✨ MERGE SUCCESS! \(largerStar.starType.displayName) + \(smallerStar.starType.displayName) → \(mergedStar.starType.displayName) (Count: \(mergedStarCount)/\(GameConstants.maxMergedStars))")
         
-        // Show merge effect
-        showMergeEffect(at: largerStar.position, color1: largerStar.starType.uiColor, color2: smallerStar.starType.uiColor)
-        
-        // Play sound only if merge is close to player (in camera view) and grace period has passed
-        if isInCameraView(largerStar.position) && currentTime - gameStartTime >= SOUND_GRACE_PERIOD {
+        // Merge effect currently disabled (showMergeEffect is a no-op).
+        // If re-enabled later, it should only run for visible merges.
+        if isInCameraView(largerStar.position),
+           currentTime - gameStartTime >= SOUND_GRACE_PERIOD {
             AudioManager.shared.playMergeSound(on: self)
         }
         
@@ -1637,7 +1650,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     }
     
     private func showMergeEffect(at position: CGPoint, color1: UIColor, color2: UIColor) {
-        // Flash effect
+        // Lightweight merge effect: flash + GPU-friendly particle emitter
+        
+        // Flash effect (same look as original)
         let flash = SKShapeNode(circleOfRadius: 40)
         flash.fillColor = .white
         flash.strokeColor = .clear
@@ -1659,31 +1674,43 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         ])
         flash.run(flashSequence)
         
-        // Particle burst
-        let particleCount = 50
-        for _ in 0..<particleCount {
-            let particle = SKShapeNode(circleOfRadius: 4)
-            particle.fillColor = Bool.random() ? color1 : color2
-            particle.strokeColor = .clear
-            particle.position = position
-            particle.zPosition = 49
-            addChild(particle)
-            
-            // Random velocity
-            let angle = CGFloat.random(in: 0...(2 * .pi))
-            let speed = CGFloat.random(in: 100...200)
-            let velocity = CGVector(dx: cos(angle) * speed, dy: sin(angle) * speed)
-            
-            // Animate particle
-            let move = SKAction.move(by: velocity, duration: 0.5)
-            let fadeOut = SKAction.fadeOut(withDuration: 0.5)
-            let scaleDown = SKAction.scale(to: 0, duration: 0.5)
-            let group = SKAction.group([move, fadeOut, scaleDown])
-            
-            particle.run(group) {
-                particle.removeFromParent()
-            }
+        // Particle burst using a single SKEmitterNode instead of 50 SKShapeNodes
+        let emitter = SKEmitterNode()
+        emitter.position = position
+        emitter.zPosition = 49
+        
+        // Use a small white circle texture generated at runtime
+        let particleSize = CGSize(width: 8, height: 8)
+        let renderer = UIGraphicsImageRenderer(size: particleSize)
+        let particleImage = renderer.image { context in
+            context.cgContext.setFillColor(UIColor.white.cgColor)
+            context.cgContext.fillEllipse(in: CGRect(origin: .zero, size: particleSize))
         }
+        emitter.particleTexture = SKTexture(image: particleImage)
+        
+        emitter.particleBirthRate = 0              // controlled by numParticlesToEmit
+        emitter.numParticlesToEmit = 50
+        emitter.particleLifetime = 0.5
+        emitter.particleLifetimeRange = 0.2
+        emitter.emissionAngle = 0
+        emitter.emissionAngleRange = CGFloat.pi * 2
+        emitter.particleSpeed = 150
+        emitter.particleSpeedRange = 50
+        emitter.particleAlpha = 0.9
+        emitter.particleAlphaSpeed = -1.8
+        emitter.particleScale = 0.5
+        emitter.particleScaleRange = 0.1
+        emitter.particleScaleSpeed = -1.0
+        emitter.particleColor = color1
+        emitter.particleColorBlendFactor = 1.0
+        emitter.particleColorSequence = nil
+        
+        addChild(emitter)
+        
+        emitter.run(SKAction.sequence([
+            SKAction.wait(forDuration: 0.7),
+            SKAction.removeFromParent()
+        ]))
     }
     
     // MARK: - Power-Up System
@@ -2162,31 +2189,39 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         guard !isGameOver else { return }
         guard !isGamePaused else { return }  // Don't update when paused
         
+        let frameStart = CACurrentMediaTime()
+        
+        let t1 = CACurrentMediaTime()
         // Track frame rate for performance monitoring
         trackFrameRate(currentTime)
+        let t2 = CACurrentMediaTime()
         
         // Update camera to follow black hole smoothly
         updateCamera()
+        let t3 = CACurrentMediaTime()
         
         // Track black hole movement for predictive spawning
         movementTracker.recordPosition(blackHole.position, at: currentTime)
         
         // Check for star field spawning
-        starFieldManager.checkAndSpawnStarField(currentTime: currentTime, 
-                                                blackHolePosition: blackHole.position, 
+        starFieldManager.checkAndSpawnStarField(currentTime: currentTime,
+                                                blackHolePosition: blackHole.position,
                                                 scene: self)
+        let t4 = CACurrentMediaTime()
         
         // Update background parallax
         updateBackgroundStars()
         
         // Update retro effects
         updateRetroEffects(currentTime)
+        let t5 = CACurrentMediaTime()
         
         // Check star proximity for warnings
         checkStarProximity()
         
         // Check for danger star tip
         checkDangerStarTip()
+        let t6 = CACurrentMediaTime()
         
         // Update power-up system
         powerUpManager.update(currentTime: currentTime)
@@ -2198,6 +2233,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         if activePowerUp.checkExpiration(currentTime: currentTime) {
             handlePowerUpExpiration()
         }
+        let t7 = CACurrentMediaTime()
         
         // Update power-up UI
         updatePowerUpUI(currentTime: currentTime)
@@ -2205,10 +2241,36 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         // Apply passive shrink and update indicator
         applyPassiveShrink(currentTime: currentTime)
         updateShrinkIndicator()
+        let t8 = CACurrentMediaTime()
         
         applyGravity()
+        let t9 = CACurrentMediaTime()
+        
         applyStarToStarGravity()
+        let t10 = CACurrentMediaTime()
+        
         removeDistantStars()
+        let t11 = CACurrentMediaTime()
+        
+        let total = CACurrentMediaTime() - frameStart
+        // Log only "slow" frames (e.g., below ~40 FPS)
+        if total > (1.0 / 40.0) {
+            let msTotal = total * 1000.0
+            let msTrack = (t2 - t1) * 1000.0
+            let msCamera = (t3 - t2) * 1000.0
+            let msSpawn = (t4 - t3) * 1000.0
+            let msBackgroundRetro = (t5 - t4) * 1000.0
+            let msProximityTips = (t6 - t5) * 1000.0
+            let msPowerups = (t7 - t6) * 1000.0
+            let msUIShrink = (t8 - t7) * 1000.0
+            let msGravity = (t9 - t8) * 1000.0
+            let msStarStar = (t10 - t9) * 1000.0
+            let msRemove = (t11 - t10) * 1000.0
+            
+            print(String(format: "🧩 FRAME COST: total=%.1fms track=%.1f cam=%.1f spawn=%.1f bg+retro=%.1f prox+tips=%.1f pwr=%.1f ui+shrink=%.1f grav=%.1f starStar=%.1f remove=%.1f",
+                         msTotal, msTrack, msCamera, msSpawn, msBackgroundRetro,
+                         msProximityTips, msPowerups, msUIShrink, msGravity, msStarStar, msRemove))
+        }
     }
     
     // MARK: - Performance Monitoring
@@ -2308,51 +2370,72 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     private func applyStarToStarGravity() {
         guard GameConstants.enableStarMerging else { return }
         guard stars.count > 1 else { return }
+        guard performanceMode == .high else { return }
         
-        // Pre-calculate constants (hoist out of loops)
+        // Use a simple spatial grid so each star only interacts with nearby stars,
+        // keeping complexity closer to O(n) instead of O(n^2).
+        let cellSize = GameConstants.starGravityRange
+        guard cellSize > 0 else { return }
+        
+        struct GridKey: Hashable { let x: Int; let y: Int }
+        var grid: [GridKey: [Star]] = [:]
+        
+        // Build grid
+        for star in stars {
+            let cellX = Int(floor(star.position.x / cellSize))
+            let cellY = Int(floor(star.position.y / cellSize))
+            let key = GridKey(x: cellX, y: cellY)
+            grid[key, default: []].append(star)
+        }
+        
         let rangeSquared = GameConstants.starGravityRange * GameConstants.starGravityRange
         let G_STAR = GameConstants.gravitationalConstant * GameConstants.starGravityMultiplier
         
-        for i in 0..<stars.count {
-            let star1 = stars[i]
-            let pos1 = star1.position  // Cache position
+        // For each star, only consider neighbors in its cell and 8 adjacent cells
+        for star1 in stars {
+            guard let body1 = star1.physicsBody else { continue }
+            let pos1 = star1.position
+            let cellX = Int(floor(pos1.x / cellSize))
+            let cellY = Int(floor(pos1.y / cellSize))
             
-            for j in (i+1)..<stars.count {
-                let star2 = stars[j]
-                
-                // OPTIMIZATION: Fast distance check (no sqrt)
-                let dx = star2.position.x - pos1.x
-                let dy = star2.position.y - pos1.y
-                let distSquared = dx * dx + dy * dy
-                
-                // Early exit for distant stars (90% of cases) - avoids expensive sqrt
-                guard distSquared < rangeSquared && distSquared > 0 else { continue }
-                
-                // Only calculate real distance when needed
-                let dist = sqrt(distSquared)
-                
-                let radius1 = star1.size.width / 2
-                let radius2 = star2.size.width / 2
-                let mass1 = radius1 * radius1 * star1.starType.massMultiplier
-                let mass2 = radius2 * radius2 * star2.starType.massMultiplier
-                
-                // Use distSquared for force calculation (avoid another multiplication)
-                let forceMagnitude = (G_STAR * mass1 * mass2) / distSquared
-                
-                // Reuse dx/dy we already calculated
-                let forceX = (dx / dist) * forceMagnitude
-                let forceY = (dy / dist) * forceMagnitude
-                
-                // Larger star pulls smaller star
-                if mass1 > mass2 {
-                    star2.physicsBody?.applyForce(CGVector(dx: forceX, dy: forceY))
-                } else {
-                    star1.physicsBody?.applyForce(CGVector(dx: -forceX, dy: -forceY))
+            let radius1 = star1.size.width / 2
+            let mass1 = radius1 * radius1 * star1.starType.massMultiplier
+            
+            for dxCell in -1...1 {
+                for dyCell in -1...1 {
+                    let key = GridKey(x: cellX + dxCell, y: cellY + dyCell)
+                    guard let neighbors = grid[key] else { continue }
+                    
+                    for star2 in neighbors {
+                        // Avoid self and only process pair once by comparing object identity
+                        if star2 === star1 { continue }
+                        guard let body2 = star2.physicsBody else { continue }
+                        
+                        let dx = star2.position.x - pos1.x
+                        let dy = star2.position.y - pos1.y
+                        let distSquared = dx * dx + dy * dy
+                        guard distSquared > 0 && distSquared < rangeSquared else { continue }
+                        
+                        let dist = sqrt(distSquared)
+                        let radius2 = star2.size.width / 2
+                        let mass2 = radius2 * radius2 * star2.starType.massMultiplier
+                        let forceMagnitude = (G_STAR * mass1 * mass2) / distSquared
+                        
+                        let forceX = (dx / dist) * forceMagnitude
+                        let forceY = (dy / dist) * forceMagnitude
+                        
+                        // Larger star pulls smaller star
+                        if mass1 > mass2 {
+                            body2.applyForce(CGVector(dx: forceX, dy: forceY))
+                        } else {
+                            body1.applyForce(CGVector(dx: -forceX, dy: -forceY))
+                        }
+                    }
                 }
             }
         }
     }
-    
+
     private func checkStarProximity() {
         var nearestStar: Star?
         var nearestEdgeDistance: CGFloat = .greatestFiniteMagnitude

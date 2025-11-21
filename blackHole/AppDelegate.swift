@@ -20,9 +20,14 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         
         // Initialize Game Center
         GameCenterManager.shared.authenticatePlayer()
-        
+
         // Configure audio session
         configureAudioSession()
+        
+        // Preload core audio assets early so later scenes don't need to spin up
+        // the audio graph for the first time (which can cause pops/clips).
+        AudioManager.shared.preloadMenuMusic()
+        AudioManager.shared.preloadSoundEffects()
         
         // Initialize IAPManager and restore purchases (async, non-blocking)
         Task {

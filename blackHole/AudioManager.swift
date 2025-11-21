@@ -1209,22 +1209,27 @@ class AudioManager {
         }
     }
     
-    private func warmUpAudioNode(_ node: SKAudioNode, finalVolume: Float, removeFromParentAfterWarmUp: Bool = false) {
+    /// "Warms" an audio node without actually playing audible sound.
+    /// We avoid calling `play`/`stop` here because that can cause pops/clips
+    /// on some devices when the audio graph spins up for the first time.
+    private func warmUpAudioNode(_ node: SKAudioNode,
+                                 finalVolume: Float,
+                                 removeFromParentAfterWarmUp: Bool = false) {
         node.removeAllActions()
-        var actions: [SKAction] = [
-            SKAction.changeVolume(to: 0.0, duration: 0.0),
-            SKAction.stop(),
-            SKAction.play(),
-            SKAction.wait(forDuration: sfxWarmUpDuration),
-            SKAction.stop(),
-            SKAction.changeVolume(to: finalVolume, duration: 0.0)
-        ]
+        
+        // Force the node's volume to 0 immediately to guarantee no output.
+        node.run(SKAction.changeVolume(to: 0.0, duration: 0.0))
         
         if removeFromParentAfterWarmUp {
-            actions.append(SKAction.removeFromParent())
+            // If this node is only needed to "prime" SpriteKit's audio system,
+            // remove it immediately without ever starting playback.
+            node.removeFromParent()
+        } else {
+            // Set the final intended volume so that when the node is actually used
+            // later (by explicit play actions elsewhere), it is ready but silent
+            // during this warm-up phase.
+            node.run(SKAction.changeVolume(to: finalVolume, duration: 0.0))
         }
-        
-        node.run(SKAction.sequence(actions), withKey: "AudioWarmUp")
     }
     
     private func ensureMenuMusicBuffersLoaded() -> Bool {

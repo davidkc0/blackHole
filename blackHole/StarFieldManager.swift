@@ -19,6 +19,10 @@ class StarFieldManager {
     private var lastSpawnTime: TimeInterval = 0
     private var nextSpawnInterval: TimeInterval = 0
     private var activeStarFieldStars: [Star] = []
+    private var pendingStarBatches: [[Star]] = []
+    private var isProcessingBatches = false
+    private let batchSize = 4
+    private let batchInterval: TimeInterval = 0.02
     
     weak var scene: GameScene?
     
@@ -34,6 +38,8 @@ class StarFieldManager {
     
     func checkAndSpawnStarField(currentTime: TimeInterval, blackHolePosition: CGPoint, scene: GameScene) {
         guard shouldSpawnStarField(currentTime: currentTime) else { return }
+        // Skip spawning if there are already plenty of stars or previous batches pending
+        guard scene.stars.count < GameConstants.starMaxCount - 5 else { return }
         
         // Select random pattern
         let pattern = selectStarFieldPattern()
@@ -65,21 +71,19 @@ class StarFieldManager {
     
     func spawnStarField(at center: CGPoint, pattern: StarFieldPattern, scene: GameScene) {
         let stars = generateStarFieldStars(pattern: pattern, center: center, blackHoleSize: scene.blackHole.currentDiameter)
+        guard !stars.isEmpty else { return }
         
-        // Spawn each star
-        for star in stars {
-            // Assign unique name
-            // Fade in animation
-            star.alpha = 0
-            star.setScale(0.5)
-            let fadeIn = SKAction.fadeIn(withDuration: 0.3)
-            let scaleUp = SKAction.scale(to: 1.0, duration: 0.3)
-            star.run(SKAction.group([fadeIn, scaleUp]))
-            
-            scene.addChild(star)
-            scene.stars.append(star)
-            activeStarFieldStars.append(star)
+        // Chunk stars into batches to avoid spawning all in a single frame
+        var batches: [[Star]] = []
+        var index = 0
+        while index < stars.count {
+            let end = min(index + batchSize, stars.count)
+            batches.append(Array(stars[index..<end]))
+            index = end
         }
+        
+        pendingStarBatches.append(contentsOf: batches)
+        processNextBatch(on: scene)
     }
     
     func generateStarFieldStars(pattern: StarFieldPattern, center: CGPoint, blackHoleSize: CGFloat) -> [Star] {
@@ -218,6 +222,35 @@ class StarFieldManager {
             let distance = hypot(star.position.x - blackHolePosition.x,
                                 star.position.y - blackHolePosition.y)
             return distance > cleanupDistance
+        }
+    }
+    
+    private func processNextBatch(on scene: GameScene) {
+        guard !pendingStarBatches.isEmpty else {
+            isProcessingBatches = false
+            return
+        }
+        
+        if !isProcessingBatches {
+            isProcessingBatches = true
+        }
+        
+        let batch = pendingStarBatches.removeFirst()
+        for star in batch {
+            star.alpha = 0
+            star.setScale(0.5)
+            let fadeIn = SKAction.fadeIn(withDuration: 0.3)
+            let scaleUp = SKAction.scale(to: 1.0, duration: 0.3)
+            star.run(SKAction.group([fadeIn, scaleUp]))
+            
+            scene.addChild(star)
+            scene.stars.append(star)
+            activeStarFieldStars.append(star)
+        }
+        
+        scene.run(SKAction.wait(forDuration: batchInterval)) { [weak self, weak scene] in
+            guard let self = self, let scene = scene else { return }
+            self.processNextBatch(on: scene)
         }
     }
 }
