@@ -201,7 +201,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         hasShrunkThisGame = false
         
         // Hide access point during gameplay
-        GameCenterManager.shared.setAccessPointVisible(false, context: .gameplay)
+        GameCenterManager.shared.hideAccessPointForGameplay()
     }
     
     private func setupPowerUpSystem() {
@@ -1407,18 +1407,6 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     private func handleStarMerge(star1: Star, star2: Star) {
         let currentTime = CACurrentMediaTime()
         
-        // NEW: Only allow merges when the interaction is visible to the player.
-        // Use the midpoint between the two stars to decide if it's on camera.
-        let mergePosition = CGPoint(
-            x: (star1.position.x + star2.position.x) * 0.5,
-            y: (star1.position.y + star2.position.y) * 0.5
-        )
-        guard isInCameraView(mergePosition) else {
-            // Off-screen interaction: skip merge/orbital logic entirely.
-            // Let physics handle them as normal stars without extra work.
-            return
-        }
-        
         // Safeguard 1: Check merged star limit
         guard mergedStarCount < GameConstants.maxMergedStars else {
             print("🚫 Merge blocked: max merged stars reached - initiating orbital interaction")
@@ -1482,10 +1470,13 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         
         print("✨ MERGE SUCCESS! \(largerStar.starType.displayName) + \(smallerStar.starType.displayName) → \(mergedStar.starType.displayName) (Count: \(mergedStarCount)/\(GameConstants.maxMergedStars))")
         
-        // Merge effect currently disabled (showMergeEffect is a no-op).
-        // If re-enabled later, it should only run for visible merges.
-        if isInCameraView(largerStar.position),
-           currentTime - gameStartTime >= SOUND_GRACE_PERIOD {
+        // Show merge effect (original behavior)
+        showMergeEffect(at: largerStar.position,
+                        color1: largerStar.starType.uiColor,
+                        color2: smallerStar.starType.uiColor)
+        
+        // Play sound only if merge is close to player (in camera view) and grace period has passed
+        if isInCameraView(largerStar.position) && currentTime - gameStartTime >= SOUND_GRACE_PERIOD {
             AudioManager.shared.playMergeSound(on: self)
         }
         
@@ -1650,9 +1641,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     }
     
     private func showMergeEffect(at position: CGPoint, color1: UIColor, color2: UIColor) {
-        // Lightweight merge effect: flash + GPU-friendly particle emitter
-        
-        // Flash effect (same look as original)
+        // Flash effect
         let flash = SKShapeNode(circleOfRadius: 40)
         flash.fillColor = .white
         flash.strokeColor = .clear
@@ -1674,43 +1663,31 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         ])
         flash.run(flashSequence)
         
-        // Particle burst using a single SKEmitterNode instead of 50 SKShapeNodes
-        let emitter = SKEmitterNode()
-        emitter.position = position
-        emitter.zPosition = 49
-        
-        // Use a small white circle texture generated at runtime
-        let particleSize = CGSize(width: 8, height: 8)
-        let renderer = UIGraphicsImageRenderer(size: particleSize)
-        let particleImage = renderer.image { context in
-            context.cgContext.setFillColor(UIColor.white.cgColor)
-            context.cgContext.fillEllipse(in: CGRect(origin: .zero, size: particleSize))
+        // Particle burst (original implementation)
+        let particleCount = 50
+        for _ in 0..<particleCount {
+            let particle = SKShapeNode(circleOfRadius: 4)
+            particle.fillColor = Bool.random() ? color1 : color2
+            particle.strokeColor = .clear
+            particle.position = position
+            particle.zPosition = 49
+            addChild(particle)
+            
+            // Random velocity
+            let angle = CGFloat.random(in: 0...(2 * .pi))
+            let speed = CGFloat.random(in: 100...200)
+            let velocity = CGVector(dx: cos(angle) * speed, dy: sin(angle) * speed)
+            
+            // Animate particle
+            let move = SKAction.move(by: velocity, duration: 0.5)
+            let fadeOut = SKAction.fadeOut(withDuration: 0.5)
+            let scaleDown = SKAction.scale(to: 0, duration: 0.5)
+            let group = SKAction.group([move, fadeOut, scaleDown])
+            
+            particle.run(group) {
+                particle.removeFromParent()
+            }
         }
-        emitter.particleTexture = SKTexture(image: particleImage)
-        
-        emitter.particleBirthRate = 0              // controlled by numParticlesToEmit
-        emitter.numParticlesToEmit = 50
-        emitter.particleLifetime = 0.5
-        emitter.particleLifetimeRange = 0.2
-        emitter.emissionAngle = 0
-        emitter.emissionAngleRange = CGFloat.pi * 2
-        emitter.particleSpeed = 150
-        emitter.particleSpeedRange = 50
-        emitter.particleAlpha = 0.9
-        emitter.particleAlphaSpeed = -1.8
-        emitter.particleScale = 0.5
-        emitter.particleScaleRange = 0.1
-        emitter.particleScaleSpeed = -1.0
-        emitter.particleColor = color1
-        emitter.particleColorBlendFactor = 1.0
-        emitter.particleColorSequence = nil
-        
-        addChild(emitter)
-        
-        emitter.run(SKAction.sequence([
-            SKAction.wait(forDuration: 0.7),
-            SKAction.removeFromParent()
-        ]))
     }
     
     // MARK: - Power-Up System
@@ -2189,16 +2166,11 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         guard !isGameOver else { return }
         guard !isGamePaused else { return }  // Don't update when paused
         
-        let frameStart = CACurrentMediaTime()
-        
-        let t1 = CACurrentMediaTime()
         // Track frame rate for performance monitoring
         trackFrameRate(currentTime)
-        let t2 = CACurrentMediaTime()
         
         // Update camera to follow black hole smoothly
         updateCamera()
-        let t3 = CACurrentMediaTime()
         
         // Track black hole movement for predictive spawning
         movementTracker.recordPosition(blackHole.position, at: currentTime)
@@ -2207,21 +2179,18 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         starFieldManager.checkAndSpawnStarField(currentTime: currentTime,
                                                 blackHolePosition: blackHole.position,
                                                 scene: self)
-        let t4 = CACurrentMediaTime()
         
         // Update background parallax
         updateBackgroundStars()
         
         // Update retro effects
         updateRetroEffects(currentTime)
-        let t5 = CACurrentMediaTime()
         
         // Check star proximity for warnings
         checkStarProximity()
         
         // Check for danger star tip
         checkDangerStarTip()
-        let t6 = CACurrentMediaTime()
         
         // Update power-up system
         powerUpManager.update(currentTime: currentTime)
@@ -2233,7 +2202,6 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         if activePowerUp.checkExpiration(currentTime: currentTime) {
             handlePowerUpExpiration()
         }
-        let t7 = CACurrentMediaTime()
         
         // Update power-up UI
         updatePowerUpUI(currentTime: currentTime)
@@ -2241,36 +2209,10 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         // Apply passive shrink and update indicator
         applyPassiveShrink(currentTime: currentTime)
         updateShrinkIndicator()
-        let t8 = CACurrentMediaTime()
         
         applyGravity()
-        let t9 = CACurrentMediaTime()
-        
         applyStarToStarGravity()
-        let t10 = CACurrentMediaTime()
-        
         removeDistantStars()
-        let t11 = CACurrentMediaTime()
-        
-        let total = CACurrentMediaTime() - frameStart
-        // Log only "slow" frames (e.g., below ~40 FPS)
-        if total > (1.0 / 40.0) {
-            let msTotal = total * 1000.0
-            let msTrack = (t2 - t1) * 1000.0
-            let msCamera = (t3 - t2) * 1000.0
-            let msSpawn = (t4 - t3) * 1000.0
-            let msBackgroundRetro = (t5 - t4) * 1000.0
-            let msProximityTips = (t6 - t5) * 1000.0
-            let msPowerups = (t7 - t6) * 1000.0
-            let msUIShrink = (t8 - t7) * 1000.0
-            let msGravity = (t9 - t8) * 1000.0
-            let msStarStar = (t10 - t9) * 1000.0
-            let msRemove = (t11 - t10) * 1000.0
-            
-            print(String(format: "🧩 FRAME COST: total=%.1fms track=%.1f cam=%.1f spawn=%.1f bg+retro=%.1f prox+tips=%.1f pwr=%.1f ui+shrink=%.1f grav=%.1f starStar=%.1f remove=%.1f",
-                         msTotal, msTrack, msCamera, msSpawn, msBackgroundRetro,
-                         msProximityTips, msPowerups, msUIShrink, msGravity, msStarStar, msRemove))
-        }
     }
     
     // MARK: - Performance Monitoring

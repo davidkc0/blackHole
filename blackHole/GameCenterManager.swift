@@ -76,6 +76,14 @@ class GameCenterManager: NSObject {
         updateAccessPointVisibility()
     }
     
+    func hideAccessPointForGameplay() {
+        desiredVisibility = false
+        activeContext = .gameplay
+        DispatchQueue.main.async {
+            GKAccessPoint.shared.isActive = false
+        }
+    }
+    
     private func updateAccessPointVisibility() {
         DispatchQueue.main.async {
             let shouldBeActive = self.desiredVisibility && self.activeContext == .menu && self.isAuthenticated

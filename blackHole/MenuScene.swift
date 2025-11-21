@@ -636,7 +636,7 @@ class MenuScene: SKScene {
         AudioManager.shared.stopBackgroundMusic()
         
         // Hide Game Center access point
-        GameCenterManager.shared.setAccessPointVisible(false, context: .gameplay)
+        GameCenterManager.shared.hideAccessPointForGameplay()
 
         // Go to game loading scene (handles haptics and texture preloading)
         let nextScene = GameLoadingScene(size: size)

@@ -20,7 +20,7 @@ class GameLoadingScene: SKScene {
         backgroundColor = .black
         
         // Ensure Game Center access point stays hidden during loading/gameplay
-        GameCenterManager.shared.setAccessPointVisible(false, context: .gameplay)
+        GameCenterManager.shared.hideAccessPointForGameplay()
         
         // 1. Create and store the loading label IMMEDIATELY (no delay)
         let label = SKLabelNode(fontNamed: "NDAstroneer-Regular")
