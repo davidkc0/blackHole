@@ -3196,10 +3196,19 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         shrinkIndicatorFill!.position = CGPoint(x: xPos, y: yPos)
         shrinkIndicatorFill!.zPosition = 101
         
-        // Always white color, 60% opacity
-        shrinkIndicatorFill!.fillColor = UIColor.white.withAlphaComponent(0.6)
+        shrinkIndicatorFill!.fillColor = shrinkGaugeColor(for: sizeRatio)
         
         hudNode.addChild(shrinkIndicatorFill!)
+    }
+    
+    private func shrinkGaugeColor(for ratio: CGFloat) -> UIColor {
+        if ratio < 0.2 {
+            return UIColor(red: 1.0, green: 0.2, blue: 0.2, alpha: 0.8) // Red at 80% opacity
+        } else if ratio < 0.5 {
+            return UIColor(red: 1.0, green: 0.85, blue: 0.2, alpha: 0.8) // Yellow at 80% opacity
+        } else {
+            return UIColor.white.withAlphaComponent(0.6)
+        }
     }
     
     fileprivate func returnToMenu() {

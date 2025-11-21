@@ -81,7 +81,7 @@ class AudioManager {
     // File Names (to be configured)
     // Menu music uses single track big_pad.wav (located in Music folder)
     private let menuMusicFileNames = [
-        "main_menu1"
+        "big_pad"
     ]
     private let gameMusicFileNames = [
         "game_music_layer1", "game_music_layer2", "game_music_layer3",
@@ -293,6 +293,10 @@ class AudioManager {
             print("⚠️ AudioManager: Cannot cache SFX nodes - sound effects not preloaded yet")
             return
         }
+        
+        let previousMuteState = isSoundMuted
+        setSoundMuted(true)
+        defer { setSoundMuted(previousMuteState) }
         
         print("🔊 AudioManager: Preparing sound effect nodes and adding to scene...")
         var createdPools = 0

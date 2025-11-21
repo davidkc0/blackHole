@@ -992,52 +992,51 @@ class MenuScene: SKScene {
         )
         currentY -= (rowHeight + hapticsToRemoveAdsSpacing)
         
-        // Remove Ads button
         let removeAdsButtonWidth = modalWidth - 40
-        
-        // Check purchase status to determine button state
-        let hasPurchased = IAPManager.shared.checkPurchaseStatus()
-        let buttonText = hasPurchased ? "ADS REMOVED ✓" : "REMOVE ADS"
-        
-        let removeAdsButton = MenuButton(text: buttonText, size: .medium, fixedWidth: removeAdsButtonWidth)
-        removeAdsButton.position = CGPoint(x: 0, y: currentY)
-        removeAdsButton.zPosition = 1
-        
-        if hasPurchased {
-            removeAdsButton.alpha = 0.6
-            removeAdsButton.isUserInteractionEnabled = false
-            removeAdsButton.onTap = nil
-        } else {
-            removeAdsButton.alpha = 1.0
-            removeAdsButton.isUserInteractionEnabled = true
-            removeAdsButton.onTap = { [weak self] in
-                print("🛒 REMOVE ADS tapped")
-                self?.handleRemoveAdsPurchase()
+        if GameConstants.enableIAPButtons {
+            // Remove Ads button
+            let hasPurchased = IAPManager.shared.checkPurchaseStatus()
+            let buttonText = hasPurchased ? "ADS REMOVED ✓" : "REMOVE ADS"
+            
+            let removeAdsButton = MenuButton(text: buttonText, size: .medium, fixedWidth: removeAdsButtonWidth)
+            removeAdsButton.position = CGPoint(x: 0, y: currentY)
+            removeAdsButton.zPosition = 1
+            
+            if hasPurchased {
+                removeAdsButton.alpha = 0.6
+                removeAdsButton.isUserInteractionEnabled = false
+                removeAdsButton.onTap = nil
+            } else {
+                removeAdsButton.alpha = 1.0
+                removeAdsButton.isUserInteractionEnabled = true
+                removeAdsButton.onTap = { [weak self] in
+                    print("🛒 REMOVE ADS tapped")
+                    self?.handleRemoveAdsPurchase()
+                }
             }
+            
+            self.removeAdsButton = removeAdsButton
+            settingsModalContainer!.addChild(removeAdsButton)
+            
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(handlePurchaseSuccessNotification),
+                name: NSNotification.Name("RemoveAdsPurchased"),
+                object: nil
+            )
+            
+            currentY -= (removeAdsButtonHeight + buttonSpacing)
+            let restoreButton = MenuButton(text: "RESTORE PURCHASES", size: .medium, fixedWidth: removeAdsButtonWidth)
+            restoreButton.position = CGPoint(x: 0, y: currentY)
+            restoreButton.zPosition = 1
+            restoreButton.onTap = { [weak self] in
+                guard let self = self, let button = self.restorePurchasesButton, !self.isRestoringPurchases else { return }
+                self.handleRestorePurchases(button: button)
+            }
+            self.restorePurchasesButton = restoreButton
+            settingsModalContainer!.addChild(restoreButton)
+            currentY -= (removeAdsButtonHeight + buttonSpacing)
         }
-        
-        self.removeAdsButton = removeAdsButton
-        settingsModalContainer!.addChild(removeAdsButton)
-        
-        // Listen for purchase success notification
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handlePurchaseSuccessNotification),
-            name: NSNotification.Name("RemoveAdsPurchased"),
-            object: nil
-        )
-        
-        currentY -= (removeAdsButtonHeight + buttonSpacing)
-        let restoreButton = MenuButton(text: "RESTORE PURCHASES", size: .medium, fixedWidth: removeAdsButtonWidth)
-        restoreButton.position = CGPoint(x: 0, y: currentY)
-        restoreButton.zPosition = 1
-        restoreButton.onTap = { [weak self] in
-            guard let self = self, let button = self.restorePurchasesButton, !self.isRestoringPurchases else { return }
-            self.handleRestorePurchases(button: button)
-        }
-        self.restorePurchasesButton = restoreButton
-        settingsModalContainer!.addChild(restoreButton)
-        currentY -= (removeAdsButtonHeight + buttonSpacing)
 
         let privacyButton = MenuButton(text: "PRIVACY POLICY", size: .medium, fixedWidth: removeAdsButtonWidth)
         privacyButton.position = CGPoint(x: 0, y: currentY)
