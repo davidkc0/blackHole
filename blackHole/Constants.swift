@@ -125,7 +125,7 @@ enum GameConstants {
     static let shrinkIndicatorRadius: CGFloat = 20
     static let shrinkIndicatorRightMargin: CGFloat = 20
     static let shrinkIndicatorTopMargin: CGFloat = 70
-    static let enableIAPButtons: Bool = false
+    static let enableIAPButtons: Bool = true
     
     // Game Over
     static let gameOverFontSize: CGFloat = 48

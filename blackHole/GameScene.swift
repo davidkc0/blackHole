@@ -175,11 +175,6 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         // Initialize background star positions relative to camera
         updateBackgroundStars()
         
-        // CRITICAL: Re-initialize audio nodes on GameScene immediately
-        // This ensures SpriteKit audio system is ready before first sound plays
-        // Nodes were preloaded on GameLoadingScene but need to be initialized on GameScene
-        AudioManager.shared.initializeAudioNodesOnScene(self)
-        
         // Show movement tip on first play
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             self?.checkAndShowMovementTip()

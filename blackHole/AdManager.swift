@@ -79,6 +79,11 @@ class AdManager: NSObject {
         // Prepare request on current thread (can be background)
         let request = Request()
         
+        // Configure for non-personalized ads
+        let extras = Extras()
+        extras.additionalParameters = ["npa": "1"]
+        request.register(extras)
+        
         // Timeout after 3 seconds (game over screen visible, user can wait a bit)
         DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
             guard let self = self else { return }

@@ -217,7 +217,6 @@ class LoadingScene: SKScene {
                                 print("⚠️ LoadingScene: Ad pre-load failed. Transitioning to menu anyway.")
                             }
                             
-                        AudioManager.shared.removePreloadedNodes(from: self)
                         self.removeDotsOverlay()
                             let transition = SKTransition.fade(withDuration: 0.5)
                             self.view?.presentScene(menuScene, transition: transition)
@@ -254,7 +253,6 @@ class LoadingScene: SKScene {
                 
                 // Brief delay before transition
                 self.run(SKAction.wait(forDuration: 0.5)) {
-                    AudioManager.shared.removePreloadedNodes(from: self)
                     self.removeDotsOverlay()
                     let transition = SKTransition.fade(withDuration: 0.5)
                     self.view?.presentScene(menuScene, transition: transition)
@@ -268,7 +266,6 @@ class LoadingScene: SKScene {
     deinit {
         NotificationCenter.default.removeObserver(self)
         dotsOverlay?.removeFromSuperviewAnimated()
-        AudioManager.shared.removePreloadedNodes(from: self)
     }
 
     private func attachDotsOverlay(text: String, animated: Bool) {
@@ -296,7 +293,7 @@ class LoadingScene: SKScene {
             AudioManager.shared.preloadSoundEffects()
             DispatchQueue.main.async { [weak self] in
                 guard let self = self else { return }
-                AudioManager.shared.preloadSoundEffectsIntoCache(on: self)
+                // With AVAudioEngine-based SFX, buffer preload is enough; no SpriteKit warm-up needed.
                 self.isSoundEffectsReady = AudioManager.shared.areSoundEffectsPreloaded
                 self.isSoundEffectsLoading = false
                 if self.isSoundEffectsReady {

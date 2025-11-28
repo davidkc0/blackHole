@@ -12,7 +12,7 @@ class IAPManager {
     static let shared = IAPManager()
     
     // Product ID for Remove Ads (non-consumable)
-    private let removeAdsProductID = "dkc.blackHole2025.removeads"
+    private let removeAdsProductID = "dkc.blackHole2025.removeads2"
     
     // UserDefaults key for purchase status
     private let hasPurchasedRemoveAdsKey = "hasPurchasedRemoveAds"
@@ -73,21 +73,31 @@ class IAPManager {
     // MARK: - Product Loading
     
     /// Fetch available products from App Store
+    @MainActor
     func loadProducts() async throws -> [Product] {
+        print("🛒 IAPManager.loadProducts() called for product ID: \(removeAdsProductID)")
         do {
             let products = try await Product.products(for: [removeAdsProductID])
+            print("🛒 IAPManager: Product.products() returned \(products.count) products")
             
             // Find and store the remove ads product
             if let product = products.first(where: { $0.id == removeAdsProductID }) {
                 self.removeAdsProduct = product
                 print("✅ IAPManager: Loaded product: \(product.displayName) - \(product.displayPrice)")
+                print("✅ IAPManager: Product ID matches: \(product.id == removeAdsProductID)")
             } else {
                 print("⚠️ IAPManager: Product not found in App Store: \(removeAdsProductID)")
+                print("⚠️ IAPManager: Available product IDs: \(products.map { $0.id })")
             }
             
             return products
         } catch {
-            print("❌ IAPManager: Failed to load products: \(error.localizedDescription)")
+            print("❌ IAPManager: Failed to load products: \(error)")
+            print("❌ IAPManager: Error description: \(error.localizedDescription)")
+            if let nsError = error as NSError? {
+                print("❌ IAPManager: NSError domain: \(nsError.domain), code: \(nsError.code)")
+                print("❌ IAPManager: NSError userInfo: \(nsError.userInfo)")
+            }
             throw error
         }
     }
@@ -95,18 +105,31 @@ class IAPManager {
     // MARK: - Purchase Flow
     
     /// Initiate purchase of Remove Ads
+    @MainActor
     func purchaseRemoveAds() async throws -> Bool {
+        print("🛒 IAPManager.purchaseRemoveAds() called on main thread")
         // Ensure product is loaded
         if removeAdsProduct == nil {
+            print("🛒 Product not loaded, loading now...")
             _ = try await loadProducts()
         }
         
         guard let product = removeAdsProduct else {
+            print("❌ IAPManager: Product still nil after loading attempt")
             throw IAPError.productNotAvailable
         }
         
+        print("🛒 IAPManager: Product available: \(product.id)")
+        print("🛒 IAPManager: Product displayName: \(product.displayName)")
+        print("🛒 IAPManager: Product price: \(product.displayPrice)")
+        print("🛒 IAPManager: Calling product.purchase() on main thread...")
+        print("🛒 IAPManager: Current thread is main: \(Thread.isMainThread)")
+        
         do {
+            // StoreKit 2 purchase() automatically presents the purchase UI
+            // It must be called from main thread (we're @MainActor so this is guaranteed)
             let result = try await product.purchase()
+            print("🛒 IAPManager: Purchase result received: \(result)")
             
             switch result {
             case .success(let verification):
@@ -136,7 +159,17 @@ class IAPManager {
                 throw IAPError.unknownError
             }
         } catch {
-            print("❌ IAPManager: Purchase failed: \(error.localizedDescription)")
+            print("❌ IAPManager: Purchase failed with error")
+            print("❌ IAPManager: Error type: \(type(of: error))")
+            print("❌ IAPManager: Error description: \(error.localizedDescription)")
+            if let storeKitError = error as? StoreKitError {
+                print("❌ IAPManager: StoreKitError: \(storeKitError)")
+            }
+            if let nsError = error as NSError? {
+                print("❌ IAPManager: NSError domain: \(nsError.domain)")
+                print("❌ IAPManager: NSError code: \(nsError.code)")
+                print("❌ IAPManager: NSError userInfo: \(nsError.userInfo)")
+            }
             throw error
         }
     }

@@ -100,8 +100,17 @@ class MenuButton: SKNode {
     }
     
     func contains(point: CGPoint) -> Bool {
-        let localPoint = convert(point, from: parent!)
-        return background.contains(localPoint)
+        guard let parent = parent else { return false }
+        let localPoint = convert(point, from: parent)
+        
+        // Calculate bounds from the background's actual rect
+        // Background is centered at (0,0) with size from buttonSize
+        let buttonSize = self.buttonSize
+        let halfWidth = buttonSize.width / 2
+        let halfHeight = buttonSize.height / 2
+        let bounds = CGRect(x: -halfWidth, y: -halfHeight, width: buttonSize.width, height: buttonSize.height)
+        
+        return bounds.contains(localPoint)
     }
     
     func animatePress() {

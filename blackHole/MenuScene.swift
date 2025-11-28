@@ -122,6 +122,18 @@ class MenuScene: SKScene {
         
         // Show Game Center access point
         GameCenterManager.shared.setAccessPointVisible(true, context: .menu)
+        
+        // Preload IAP products early so they're ready when user opens settings
+        if GameConstants.enableIAPButtons {
+            Task {
+                do {
+                    _ = try await IAPManager.shared.loadProducts()
+                    print("✅ IAP products preloaded early in MenuScene")
+                } catch {
+                    print("⚠️ Failed to preload IAP products: \(error.localizedDescription)")
+                }
+            }
+        }
     }
     
     // MARK: - Touch Handling
@@ -191,14 +203,9 @@ class MenuScene: SKScene {
         }
         
         if settingsModalOpen {
-            if let closeButton = settingsCloseButton {
-                let buttonLocation = convert(location, to: closeButton.parent!)
-                if closeButton.contains(point: buttonLocation) {
-                    closeButton.animateRelease()
-                    closeSettingsModal()
-                    return
-                }
-            }
+            // Don't handle touches in MenuScene when modal is open
+            // Let SettingsModalScene handle them instead
+            print("ℹ️ MenuScene: Modal is open, ignoring touch (SettingsModalScene should handle it)")
             return
         }
         
@@ -416,19 +423,44 @@ class MenuScene: SKScene {
         
         // Logo image instead of text
         let logo = SKSpriteNode(imageNamed: "logo")
-        logo.position = CGPoint(x: 0, y: 200 * scale)  // Scale position
+        
+        // Calculate logo position with overlap detection
+        // In SpriteKit: (0,0) is center, positive Y is up
+        var logoY = 200 * scale  // Default scaled position (above center)
+        
+        // Check if logo would overlap with settings/stats buttons on small screens
+        // Buttons are positioned in SpriteKit coordinates at: screenSize.height / 2 - 114
+        // This is positive (above center) in SpriteKit coordinates
+        let buttonYPosition = screenSize.height / 2 - 114.0  // Button center Y in SpriteKit coords
+        let buttonHeight: CGFloat = 40.0  // Button is 40pt tall
+        let buttonTop = buttonYPosition + buttonHeight / 2  // Top edge of button
+        let buttonBottom = buttonYPosition - buttonHeight / 2  // Bottom edge of button
+        
+        // Calculate logo dimensions after scaling
+        let maxWidth = screenSize.width * 0.6
+        let maxHeight: CGFloat = 80 * scale
+        let widthScale = maxWidth / logo.size.width
+        let heightScale = maxHeight / logo.size.height
+        let logoScale = min(widthScale, heightScale) * 1.21
+        let scaledLogoHeight = logo.size.height * logoScale
+        
+        // Logo position in SpriteKit: logoY is center of logo (positive = above center)
+        // Logo top edge = logoY + scaledLogoHeight / 2
+        // Logo bottom edge = logoY - scaledLogoHeight / 2
+        let logoBottom = logoY - scaledLogoHeight / 2
+        
+        // If logo bottom would overlap with button top area, adjust logo position up
+        // We need at least 20pt gap between logo bottom and button top
+        if logoBottom > (buttonTop + 20) {
+            // Adjust logo up to create gap
+            let overlap = logoBottom - (buttonTop + 20)
+            logoY = logoY - overlap - 10  // Extra 10pt padding
+        }
+        
+        logo.position = CGPoint(x: 0, y: logoY)
         logo.zPosition = 100
         
         // Scale the logo to fit on screen properly
-        // Set max dimensions based on screen size (use 60% of screen width max)
-        let maxWidth = screenSize.width * 0.6
-        let maxHeight: CGFloat = 80 * scale  // Slightly larger than old font size
-        
-        // Calculate scale to fit within both constraints
-        let widthScale = maxWidth / logo.size.width
-        let heightScale = maxHeight / logo.size.height
-        let logoScale = min(widthScale, heightScale) * 1.21  // 10% larger (1.1 * 1.1)
-        
         logo.setScale(logoScale)
         
         addChild(logo)
@@ -648,8 +680,8 @@ class MenuScene: SKScene {
     }
     
     private func showComingSoon() {
-        // Play sound
-        AudioManager.shared.playPowerUpSound(on: self)
+        // Play button press sound
+        AudioManager.shared.playButtonPressSound()
         
         // Show temporary message
         let message = SKLabelNode(fontNamed: "NDAstroneer-Bold")
@@ -886,12 +918,32 @@ class MenuScene: SKScene {
         }
         
         // Step 2: Create a separate SKView for the modal content above the blur
+        // Get the parent UIViewController's view to ensure proper touch handling
+        var parentView: UIView = skView
+        if let window = skView.window, let rootVC = window.rootViewController {
+            parentView = rootVC.view
+        } else {
+            // Fallback: traverse responder chain to find view controller
+            var responder: UIResponder? = skView.next
+            while responder != nil {
+                if let vc = responder as? UIViewController {
+                    parentView = vc.view
+                    break
+                }
+                responder = responder?.next
+            }
+        }
+        
         let modalSKView = SKView(frame: skView.bounds)
         modalSKView.allowsTransparency = true
         modalSKView.backgroundColor = .clear
         modalSKView.isUserInteractionEnabled = true
-        skView.addSubview(modalSKView)
+        modalSKView.ignoresSiblingOrder = true
+        // Add to the parent view (view controller's view) to ensure touches work
+        parentView.addSubview(modalSKView)
+        parentView.bringSubviewToFront(modalSKView)
         settingsModalView = modalSKView
+        print("✅ Settings modal view created and added on top of parent view")
         
         // Step 3: Create a temporary scene for the modal content
         let modalScene = SettingsModalScene(size: skView.bounds.size)
@@ -899,13 +951,17 @@ class MenuScene: SKScene {
         modalScene.backgroundColor = .clear
         modalScene.scaleMode = .aspectFill
         modalScene.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+        modalScene.isUserInteractionEnabled = true  // Ensure scene can receive touches
         modalSKView.presentScene(modalScene)
+        print("✅ SettingsModalScene presented, isUserInteractionEnabled: \(modalScene.isUserInteractionEnabled)")
         
         // Step 4: Create modal container in the modal scene
         settingsModalContainer = SKNode()
         settingsModalContainer!.name = "settingsModal"
         settingsModalContainer!.zPosition = 200
         modalScene.addChild(settingsModalContainer!)
+        
+        // IAP products already preloaded in MenuScene.didMove(to:), no need to load again
         
         // Modal dimensions
         let modalWidth: CGFloat = 320
@@ -994,30 +1050,23 @@ class MenuScene: SKScene {
         
         let removeAdsButtonWidth = modalWidth - 40
         if GameConstants.enableIAPButtons {
-            // Remove Ads button
+            // Remove Ads button - exactly like other buttons
             let hasPurchased = IAPManager.shared.checkPurchaseStatus()
             let buttonText = hasPurchased ? "ADS REMOVED ✓" : "REMOVE ADS"
-            
             let removeAdsButton = MenuButton(text: buttonText, size: .medium, fixedWidth: removeAdsButtonWidth)
             removeAdsButton.position = CGPoint(x: 0, y: currentY)
             removeAdsButton.zPosition = 1
-            
             if hasPurchased {
                 removeAdsButton.alpha = 0.6
                 removeAdsButton.isUserInteractionEnabled = false
-                removeAdsButton.onTap = nil
-            } else {
-                removeAdsButton.alpha = 1.0
-                removeAdsButton.isUserInteractionEnabled = true
-                removeAdsButton.onTap = { [weak self] in
-                    print("🛒 REMOVE ADS tapped")
-                    self?.handleRemoveAdsPurchase()
-                }
             }
-            
+            removeAdsButton.onTap = { [weak self] in
+                self?.handleRemoveAdsPurchase()
+            }
             self.removeAdsButton = removeAdsButton
             settingsModalContainer!.addChild(removeAdsButton)
             
+            // Set up notification observer for purchase success
             NotificationCenter.default.addObserver(
                 self,
                 selector: #selector(handlePurchaseSuccessNotification),
@@ -1026,11 +1075,13 @@ class MenuScene: SKScene {
             )
             
             currentY -= (removeAdsButtonHeight + buttonSpacing)
+            
+            // Restore Purchases button
             let restoreButton = MenuButton(text: "RESTORE PURCHASES", size: .medium, fixedWidth: removeAdsButtonWidth)
             restoreButton.position = CGPoint(x: 0, y: currentY)
             restoreButton.zPosition = 1
             restoreButton.onTap = { [weak self] in
-                guard let self = self, let button = self.restorePurchasesButton, !self.isRestoringPurchases else { return }
+                guard let self = self, let button = self.restorePurchasesButton else { return }
                 self.handleRestorePurchases(button: button)
             }
             self.restorePurchasesButton = restoreButton
@@ -1236,43 +1287,66 @@ class MenuScene: SKScene {
     }
     
     private func handleRemoveAdsPurchase() {
-        guard let button = removeAdsButton else { return }
-        guard !isPurchasingRemoveAds else { return }
+        print("🛒 handleRemoveAdsPurchase() called")
+        guard let button = removeAdsButton else { 
+            print("❌ Remove ads button is nil")
+            return 
+        }
+        guard !isPurchasingRemoveAds else { 
+            print("ℹ️ Purchase already in progress")
+            return 
+        }
         isPurchasingRemoveAds = true
         
         let originalText = button.text
         button.updateText("LOADING...")
         button.isUserInteractionEnabled = false
         
-        Task {
+        print("🛒 Starting purchase flow...")
+        
+        Task { @MainActor in
             do {
-                print("🔎 Fetching products in handleRemoveAdsPurchase")
+                print("🔎 Loading products first...")
+                // Explicitly load products first to ensure they're available
+                let products = try await IAPManager.shared.loadProducts()
+                print("🔎 Products loaded: \(products.count) products")
+                
+                if products.isEmpty {
+                    print("❌ No products returned from App Store!")
+                    throw IAPManager.IAPError.productNotAvailable
+                }
+                
+                print("🔎 Initiating purchase...")
                 let success = try await IAPManager.shared.purchaseRemoveAds()
                 
-                DispatchQueue.main.async { [weak self] in
-                    guard let self = self, let button = self.removeAdsButton else { return }
-                    self.isPurchasingRemoveAds = false
-                    
-                    if success {
-                        print("✅ Purchase successful!")
-                    } else {
-                        button.updateText(originalText.isEmpty ? "REMOVE ADS" : originalText)
-                        button.isUserInteractionEnabled = true
-                        print("❌ Purchase failed")
-                    }
-                }
-            } catch {
-                DispatchQueue.main.async { [weak self] in
-                    guard let self = self, let button = self.removeAdsButton else { return }
-                    self.isPurchasingRemoveAds = false
-                    
+                self.isPurchasingRemoveAds = false
+                
+                if success {
+                    print("✅ Purchase successful!")
+                    button.updateText("ADS REMOVED ✓")
+                    button.alpha = 0.6
+                    button.isUserInteractionEnabled = false
+                    button.onTap = nil
+                } else {
                     button.updateText(originalText.isEmpty ? "REMOVE ADS" : originalText)
                     button.isUserInteractionEnabled = true
-                    
-                    if let iapError = error as? IAPManager.IAPError {
-                        print("❌ Purchase error: \(iapError.localizedDescription)")
-                    } else {
-                        print("❌ Purchase error: \(error.localizedDescription)")
+                    print("❌ Purchase returned false")
+                }
+            } catch {
+                self.isPurchasingRemoveAds = false
+                
+                button.updateText(originalText.isEmpty ? "REMOVE ADS" : originalText)
+                button.isUserInteractionEnabled = true
+                
+                if let iapError = error as? IAPManager.IAPError {
+                    print("❌ Purchase error: \(iapError.localizedDescription)")
+                    print("❌ Error type: \(iapError)")
+                } else {
+                    print("❌ Purchase error: \(error)")
+                    print("❌ Error description: \(error.localizedDescription)")
+                    if let nsError = error as NSError? {
+                        print("❌ NSError domain: \(nsError.domain), code: \(nsError.code)")
+                        print("❌ NSError userInfo: \(nsError.userInfo)")
                     }
                 }
             }
@@ -1295,7 +1369,16 @@ class MenuScene: SKScene {
                     if restored {
                         button.updateText("RESTORED ✓")
                         button.alpha = 0.6
+                        button.isUserInteractionEnabled = false
                         button.onTap = nil
+                        // Update remove ads button if it exists
+                        if let removeAdsButton = self.removeAdsButton {
+                            removeAdsButton.updateText("ADS REMOVED ✓")
+                            removeAdsButton.alpha = 0.6
+                            removeAdsButton.isUserInteractionEnabled = false
+                            removeAdsButton.onTap = nil
+                        }
+                        print("✅ Purchases restored successfully")
                     } else {
                         button.updateText(originalText.isEmpty ? "RESTORE PURCHASES" : originalText)
                         button.isUserInteractionEnabled = true
@@ -1319,7 +1402,7 @@ class MenuScene: SKScene {
         settingsModalOpen = false
         
         // Remove purchase notification observer
-        NotificationCenter.default.removeObserver(self, name: NSNotification.Name("RemoveAdsPurchased"), object: nil)
+            NotificationCenter.default.removeObserver(self)
         
         // Fade out animation for modal
         let fadeOut = SKAction.fadeOut(withDuration: 0.2)
@@ -1437,7 +1520,8 @@ private class SettingsModalScene: SKScene {
         }
 
         if let removeButton = menuScene.removeAdsButton {
-            let buttonLocation = convert(location, to: removeButton.parent!)
+            guard let buttonParent = removeButton.parent else { return }
+            let buttonLocation = convert(location, to: buttonParent)
             if removeButton.contains(point: buttonLocation) {
                 removeButton.animatePress()
                 return
@@ -1475,7 +1559,9 @@ private class SettingsModalScene: SKScene {
     }
     
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        guard let touch = touches.first, let menuScene = menuScene else { return }
+        guard let touch = touches.first, let menuScene = menuScene else { 
+            return 
+        }
         let location = touch.location(in: self)
         
         // Check for close button
@@ -1586,8 +1672,13 @@ private class ModalScene: SKScene {
     }
     
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        guard let touch = touches.first, let menuScene = menuScene else { return }
+        print("🖐 SettingsModalScene.touchesEnded called")
+        guard let touch = touches.first, let menuScene = menuScene else { 
+            print("⚠️ SettingsModalScene: No touch or menuScene")
+            return 
+        }
         let location = touch.location(in: self)
+        print("🖐 SettingsModalScene: Touch location: \(location)")
         
         // Check for close button in modal scene
         if let closeButton = menuScene.statsCloseButton {

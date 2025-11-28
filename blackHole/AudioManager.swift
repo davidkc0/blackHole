@@ -18,6 +18,8 @@ class AudioManager {
     private var audioEngine: AVAudioEngine?
     private var musicPlayerNodes: [AVAudioPlayerNode] = []
     private var musicMixerNode: AVAudioMixerNode?
+    private var sfxPlayerNodes: [AVAudioPlayerNode] = []
+    private var sfxMixerNode: AVAudioMixerNode?
     var isAudioEngineInitialized = false
     
     // Music Buffers
@@ -34,37 +36,23 @@ class AudioManager {
     private var layerVolumes: [Int: Float] = [:]
     private var currentBlackHoleSize: CGFloat = 0.0 // Track current size for phase-based volume control
     
-    // Sound Effects (stored as file paths, plus SKAudioNode pools for volume control)
-    private var soundEffectFilePaths: [String: String] = [:]
+    // Sound Effects (stored as AVAudioPCMBuffer and played via AVAudioEngine)
+    private var sfxBuffers: [String: AVAudioPCMBuffer] = [:]
     private(set) var areSoundEffectsPreloaded = false
     
-    private struct SFXNodePool {
-        var nodes: [SKAudioNode]
-        var nextIndex: Int = 0
-        
-        mutating func nextNode() -> SKAudioNode {
-            let node = nodes[nextIndex]
-            nextIndex = (nextIndex + 1) % nodes.count
-            return node
-        }
-    }
+    // SFX playback via AVAudioEngine
+    private let sfxPlayerPoolSize = 12
+    private var nextSFXPlayerIndex: Int = 0
     
-    private var sfxNodePools: [String: SFXNodePool] = [:]
-    private let sfxPoolSize = 3
-    private let sfxWarmUpDuration: TimeInterval = 0.06
-    
-    // Proximity Sound Management (single loop node, nearest-only)
-    private var proximityLoopNode: SKAudioNode?
-    private weak var proximityLoopScene: SKScene?
+    // Proximity Sound Management (single loop player, nearest-only)
+    private var proximityPlayerNode: AVAudioPlayerNode?
     private var isProximityActive = false
     private var proximityStartTime: TimeInterval = 0
     private let proximityMinPlayDuration: TimeInterval = 1 // Minimum 1s play time
     private var proximityPendingStopWorkItem: DispatchWorkItem?
     
-    
     // Power-up Loop Sound Management
-    private var powerUpLoopAudioNode: SKAudioNode?
-    private weak var powerUpLoopScene: SKScene?
+    private var powerUpLoopPlayerNode: AVAudioPlayerNode?
     
     // UI SFX Players
     private var buttonPressPlayer: AVAudioPlayer?
@@ -205,55 +193,22 @@ class AudioManager {
         }
         
         print("🔊 AudioManager: Preloading sound effects...")
-        soundEffectFilePaths.removeAll()
+        sfxBuffers.removeAll()
         areSoundEffectsPreloaded = false
         
         for (key, fileName) in soundEffectFileNames {
             let extensions = ["wav", "mp3", "caf", "aiff", "m4a", "aac"]
-            var filePath: String?
             
-            for ext in extensions {
-                // Try SFX folder first
-                if Bundle.main.path(forResource: fileName, ofType: ext, inDirectory: "SFX") != nil {
-                    filePath = "SFX/\(fileName).\(ext)"
-                    break
-                }
-                // Try root
-                if Bundle.main.path(forResource: fileName, ofType: ext) != nil {
-                    filePath = "\(fileName).\(ext)"
-                    break
-                }
-            }
-            
-            if let path = filePath {
-                soundEffectFilePaths[key] = path
-                print("✅ AudioManager: Sound effect '\(key)' found: \(path)")
+            if let buffer = loadSFXBuffer(fileName: fileName, extensions: extensions) {
+                sfxBuffers[key] = buffer
+                print("✅ AudioManager: Sound effect '\(key)' loaded into buffer")
             } else {
-                print("⚠️ AudioManager: Failed to find sound effect '\(key)': \(fileName)")
+                print("⚠️ AudioManager: Failed to load sound effect '\(key)': \(fileName)")
             }
         }
         
-        areSoundEffectsPreloaded = !soundEffectFilePaths.isEmpty
-        print("✅ AudioManager: Loaded \(soundEffectFilePaths.count)/\(soundEffectFileNames.count) sound effect paths")
-    }
-    
-    @discardableResult
-    private func ensureSFXNodePool(for key: String, filePath: String) -> Bool {
-        guard sfxNodePools[key] == nil else {
-            return false
-        }
-        
-        var nodes: [SKAudioNode] = []
-        for _ in 0..<sfxPoolSize {
-            let node = SKAudioNode(fileNamed: filePath)
-            node.autoplayLooped = false
-            node.isPositional = false
-            node.run(SKAction.changeVolume(to: soundVolume, duration: 0.0))
-            nodes.append(node)
-        }
-        
-        sfxNodePools[key] = SFXNodePool(nodes: nodes, nextIndex: 0)
-        return true
+        areSoundEffectsPreloaded = !sfxBuffers.isEmpty
+        print("✅ AudioManager: Loaded \(sfxBuffers.count)/\(soundEffectFileNames.count) sound effect buffers")
     }
     
     func prepareButtonPressSound() {
@@ -285,124 +240,6 @@ class AudioManager {
         }
     }
     
-    /// Preloads sound effects by loading them into memory AND adding to scene
-    /// CRITICAL: Nodes must be added to scene during loading to initialize SpriteKit audio system
-    /// Adding nodes to scene for first time during gameplay causes main thread freeze
-    func preloadSoundEffectsIntoCache(on scene: SKScene) {
-        guard !soundEffectFilePaths.isEmpty else {
-            print("⚠️ AudioManager: Cannot cache SFX nodes - sound effects not preloaded yet")
-            return
-        }
-        
-        let previousMuteState = isSoundMuted
-        setSoundMuted(true)
-        defer { setSoundMuted(previousMuteState) }
-        
-        print("🔊 AudioManager: Preparing sound effect nodes and adding to scene...")
-        var createdPools = 0
-        var reattachedPools = 0
-        let baseVolume = isSoundMuted ? 0.0 : (soundVolume * sfxMix)
-        
-        for (key, filePath) in soundEffectFilePaths {
-            let poolCreated = ensureSFXNodePool(for: key, filePath: filePath)
-            if poolCreated {
-                createdPools += 1
-            } else {
-                reattachedPools += 1
-            }
-            
-            guard let pool = sfxNodePools[key], let firstNode = pool.nodes.first else { continue }
-            
-            if firstNode.parent !== nil && firstNode.parent !== scene {
-                firstNode.removeFromParent()
-            }
-            if firstNode.parent !== scene {
-                scene.addChild(firstNode)
-            }
-            
-            warmUpAudioNode(firstNode, finalVolume: baseVolume)
-        }
-        
-        // Pre-create or reuse proximity sound node and add to scene to initialize
-        if let proximityPath = soundEffectFilePaths["proximity"] {
-            let node: SKAudioNode
-            if let existing = proximityLoopNode {
-                node = existing
-            } else {
-                let newNode = SKAudioNode(fileNamed: proximityPath)
-                newNode.autoplayLooped = true
-                newNode.isPositional = false
-                proximityLoopNode = newNode
-                node = newNode
-            }
-            
-            if node.parent !== nil && node.parent !== scene {
-                node.removeFromParent()
-            }
-            if node.parent !== scene {
-                scene.addChild(node)
-            }
-            
-            warmUpAudioNode(node, finalVolume: 0.0)
-            print("✅ AudioManager: Proximity audio node initialized on loading scene")
-        }
-        
-        print("✅ AudioManager: Prepared \(createdPools) new / \(reattachedPools) existing sound effect pools - nodes warmed on scene")
-        prepareButtonPressSound()
-    }
-    
-    /// Removes all preloaded nodes from the given scene (call before transitioning scenes)
-    func removePreloadedNodes(from scene: SKScene) {
-        // Remove all nodes from pools that are in this scene
-        for (_, pool) in sfxNodePools {
-            for node in pool.nodes {
-                if node.parent === scene {
-                    node.removeAllActions()
-                    node.run(SKAction.stop())
-                    node.removeFromParent()
-                }
-            }
-        }
-        
-        // Remove proximity node if it's in this scene
-        if let proximityNode = proximityLoopNode, proximityNode.parent === scene {
-            proximityNode.removeAllActions()
-            proximityNode.run(SKAction.stop())
-            proximityNode.removeFromParent()
-        }
-        
-        print("🔊 AudioManager: Removed preloaded nodes from scene")
-    }
-    
-    /// Initializes audio nodes on the given scene (call when GameScene is created)
-    /// This ensures SpriteKit audio system is ready before first sound plays
-    func initializeAudioNodesOnScene(_ scene: SKScene) {
-        print("🔊 AudioManager: Initializing audio nodes on GameScene...")
-        
-        // Add first node from each pool to scene to initialize audio system
-        // Files are already loaded, so this should be fast
-        for (_, pool) in sfxNodePools {
-            guard let firstNode = pool.nodes.first else { continue }
-            if firstNode.parent !== nil {
-                firstNode.removeFromParent()
-            }
-            scene.addChild(firstNode)
-            warmUpAudioNode(firstNode, finalVolume: 0.0, removeFromParentAfterWarmUp: true)
-        }
-        
-        // Initialize proximity node
-        if let proximityNode = proximityLoopNode {
-            if proximityNode.parent !== nil {
-                proximityNode.removeFromParent()
-            }
-            scene.addChild(proximityNode)
-            warmUpAudioNode(proximityNode, finalVolume: 0.0, removeFromParentAfterWarmUp: true)
-        }
-        
-        print("✅ AudioManager: Audio nodes initialized on GameScene")
-    }
-    
-    
     // MARK: - Audio Engine Initialization
     
     func initializeAudioEngine() {
@@ -420,30 +257,59 @@ class AudioManager {
             return
         }
         
-        // Create 5 player nodes
+        // Create music mixer node
+        musicMixerNode = AVAudioMixerNode()
+        guard let musicMixer = musicMixerNode else {
+            print("❌ AudioManager: Failed to create music mixer node")
+            return
+        }
+        engine.attach(musicMixer)
+        
+        // Create SFX mixer node
+        sfxMixerNode = AVAudioMixerNode()
+        guard let sfxMixer = sfxMixerNode else {
+            print("❌ AudioManager: Failed to create SFX mixer node")
+            return
+        }
+        engine.attach(sfxMixer)
+        
+        // Connect mixers to main output
+        let mainMixer = engine.mainMixerNode
+        engine.connect(musicMixer, to: mainMixer, format: nil)
+        engine.connect(sfxMixer, to: mainMixer, format: nil)
+        
+        // Create music player nodes and connect to music mixer
         musicPlayerNodes.removeAll()
-        for i in 0..<5 {
+        for _ in 0..<5 {
             let playerNode = AVAudioPlayerNode()
             musicPlayerNodes.append(playerNode)
             engine.attach(playerNode)
+            engine.connect(playerNode, to: musicMixer, format: nil)
         }
         
-        // Create mixer node
-        musicMixerNode = AVAudioMixerNode()
-        guard let mixer = musicMixerNode else {
-            print("❌ AudioManager: Failed to create mixer node")
-            return
-        }
-        engine.attach(mixer)
-        
-        // Connect player nodes to mixer
-        for playerNode in musicPlayerNodes {
-            engine.connect(playerNode, to: mixer, format: nil)
+        // Create SFX player pool and connect to SFX mixer
+        sfxPlayerNodes.removeAll()
+        nextSFXPlayerIndex = 0
+        for _ in 0..<sfxPlayerPoolSize {
+            let playerNode = AVAudioPlayerNode()
+            sfxPlayerNodes.append(playerNode)
+            engine.attach(playerNode)
+            engine.connect(playerNode, to: sfxMixer, format: nil)
         }
         
-        // Connect mixer to main output
-        let mainMixer = engine.mainMixerNode
-        engine.connect(mixer, to: mainMixer, format: nil)
+        // Create dedicated loop players for proximity and power-up
+        let proximityPlayer = AVAudioPlayerNode()
+        proximityPlayerNode = proximityPlayer
+        engine.attach(proximityPlayer)
+        engine.connect(proximityPlayer, to: sfxMixer, format: nil)
+        
+        let powerUpPlayer = AVAudioPlayerNode()
+        powerUpLoopPlayerNode = powerUpPlayer
+        engine.attach(powerUpPlayer)
+        engine.connect(powerUpPlayer, to: sfxMixer, format: nil)
+        
+        // Initialize SFX mixer volume
+        updateAllSFXNodeVolumes()
         
         // Prepare engine
         do {
@@ -457,8 +323,27 @@ class AudioManager {
     
     // MARK: - Background Music Playback
     
+    private func ensureAudioEngineRunning() {
+        if !isAudioEngineInitialized {
+            initializeAudioEngine()
+        }
+        
+        guard let engine = audioEngine else { return }
+        
+        if !engine.isRunning {
+            do {
+                try engine.start()
+                print("✅ AudioManager: Audio engine started")
+            } catch {
+                print("❌ AudioManager: Failed to start audio engine: \(error)")
+            }
+        }
+    }
+    
+    // MARK: - Background Music Playback
+    
     func playBackgroundMusic() {
-        // Initialize audio engine if not already initialized
+        // Initialize and start audio engine if not already running
         if !isAudioEngineInitialized {
             print("⚠️ AudioManager: Audio engine not initialized, initializing now...")
             initializeAudioEngine()
@@ -467,6 +352,8 @@ class AudioManager {
                 return
             }
         }
+        
+        ensureAudioEngineRunning()
         
         // Use menu music by default (can be switched to game music later)
         if currentMusicBuffers.isEmpty {
@@ -482,20 +369,9 @@ class AudioManager {
             return
         }
         
-        guard let engine = audioEngine else {
+        guard let _ = audioEngine else {
             print("❌ AudioManager: Audio engine is nil")
             return
-        }
-        
-        // Start engine if not running
-        if !engine.isRunning {
-            do {
-                try engine.start()
-                print("✅ AudioManager: Audio engine started")
-            } catch {
-                print("❌ AudioManager: Failed to start audio engine: \(error)")
-                return
-            }
         }
         
         // Activate layers starting from position 0:00
@@ -506,7 +382,7 @@ class AudioManager {
         // Game music: activate all 5 layers, but mute layers 2-5 initially (unmute based on size phases)
         if isMenuMusic {
             activateLayer(0, startFromBeginning: true)
-            print("ðŸŽµ AudioManager: Menu music started (single layer)")
+            print("🎵 AudioManager: Menu music started (single layer)")
         } else {
             // Start all 5 layers playing, but only unmute layer 1 initially
             print("🎵 AudioManager: Game music starting - activating all 5 layers (synced playback, progressive unmuting)")
@@ -821,8 +697,7 @@ class AudioManager {
             player.volume = isSoundMuted ? 0.0 : (soundVolume * sfxMix)
         }
         
-        // Note: SKAction.playSoundFileNamed() respects volume settings automatically
-        // No need to update individual players since we're using SpriteKit actions
+        // SFX played via AVAudioEngine respect mixer volume automatically
     }
     
     // MARK: - Mute Control
@@ -860,9 +735,6 @@ class AudioManager {
         if let player = buttonPressPlayer {
             player.volume = muted ? 0.0 : (soundVolume * sfxMix)
         }
-        
-        // Note: SKAction.playSoundFileNamed() respects mute state via isSoundMuted flag
-        // Each play method checks isSoundMuted before playing
     }
     
     // MARK: - Sound Effects
@@ -920,42 +792,33 @@ class AudioManager {
     func startPowerUpLoopSound(on scene: SKScene) {
         guard !isSoundMuted && soundVolume > 0.0 else { return }
         
-        // Use existing node or create lazily (power-up is rare, acceptable to create on-demand)
-        // But prefer to pre-create during loading if possible
-        let loopNode: SKAudioNode
-        if let existingNode = powerUpLoopAudioNode {
-            loopNode = existingNode
-        } else {
-            guard let filePath = soundEffectFilePaths["powerup"] else {
-                print("⚠️ AudioManager: Power-up loop sound file not found")
-                return
-            }
-            // Create on-demand for power-up (acceptable since it's rare)
-            print("🔊 AudioManager: Creating power-up loop node on-demand")
-            loopNode = SKAudioNode(fileNamed: filePath)
-            loopNode.autoplayLooped = true
-            loopNode.isPositional = false
-            powerUpLoopAudioNode = loopNode
+        guard let buffer = sfxBuffers["powerup"] else {
+            print("⚠️ AudioManager: Power-up loop buffer not loaded")
+            return
         }
         
-        powerUpLoopScene = scene
+        ensureAudioEngineRunning()
         
-        if loopNode.parent !== scene {
-            loopNode.removeFromParent()
-            scene.addChild(loopNode)
+        guard let player = powerUpLoopPlayerNode else {
+            print("⚠️ AudioManager: Power-up loop player node not available")
+            return
         }
         
-        loopNode.run(SKAction.changeVolume(to: soundVolume * sfxMix, duration: 0.0))
-        loopNode.run(SKAction.play())
+        if player.isPlaying {
+            return
+        }
         
-        print("🔊 AudioManager: Power-up loop sound started")
+        player.stop()
+        player.volume = 1.0
+        player.scheduleBuffer(buffer, at: nil, options: [.loops], completionHandler: nil)
+        player.play()
+        
+        print("🔊 AudioManager: Power-up loop sound started (AVAudioEngine)")
     }
     
     func stopPowerUpLoopSound() {
-        guard let loopNode = powerUpLoopAudioNode else { return }
-        loopNode.run(SKAction.stop())
-        loopNode.removeFromParent()
-        powerUpLoopScene = nil
+        guard let player = powerUpLoopPlayerNode else { return }
+        player.stop()
         print("🔊 AudioManager: Power-up loop sound stopped")
     }
     
@@ -976,45 +839,34 @@ class AudioManager {
         proximityPendingStopWorkItem = nil
         
         // If already playing, don't restart (avoid per-frame spam)
-        if isProximityActive, let existingNode = proximityLoopNode, existingNode.parent === scene {
+        if isProximityActive, let player = proximityPlayerNode, player.isPlaying {
             return
         }
         
-        // Use pre-created node (should exist from preloadSoundEffectsIntoCache)
-        let node: SKAudioNode
-        if let existing = proximityLoopNode {
-            node = existing
-        } else {
-            // Fallback: create if not pre-loaded (shouldn't happen, but safe)
-            guard let filePath = soundEffectFilePaths["proximity"] else {
-                print("⚠️ AudioManager: Proximity sound file not found")
+        guard let buffer = sfxBuffers["proximity"] else {
+            print("⚠️ AudioManager: Proximity sound buffer not loaded")
+            return
+        }
+        
+        ensureAudioEngineRunning()
+        
+        if proximityPlayerNode == nil {
+            guard let engine = audioEngine, let sfxMixer = sfxMixerNode else {
+                print("⚠️ AudioManager: Audio engine or SFX mixer not available for proximity sound")
                 return
             }
-            let newNode = SKAudioNode(fileNamed: filePath)
-            newNode.autoplayLooped = true
-            newNode.isPositional = false
-            proximityLoopNode = newNode
-            node = newNode
+            let player = AVAudioPlayerNode()
+            proximityPlayerNode = player
+            engine.attach(player)
+            engine.connect(player, to: sfxMixer, format: buffer.format)
         }
         
-        proximityLoopScene = scene
+        guard let player = proximityPlayerNode else { return }
         
-        // Add to scene if not already there
-        if node.parent !== scene {
-            // Stop and remove from old scene if needed
-            if node.parent !== nil {
-                node.removeAllActions()
-                node.run(SKAction.stop())
-                node.removeFromParent()
-            }
-            // Start at 0 volume, add to scene (will auto-play), then fade in
-            node.run(SKAction.changeVolume(to: 0.0, duration: 0.0))
-            scene.addChild(node)
-        }
-        
-        let targetVolume = soundVolume * sfxMix
-        let fadeIn = SKAction.changeVolume(to: targetVolume, duration: 0.15)
-        node.run(fadeIn, withKey: "proxFadeIn")
+        player.stop()
+        player.volume = 1.0
+        player.scheduleBuffer(buffer, at: nil, options: [.loops], completionHandler: nil)
+        player.play()
         
         isProximityActive = true
         proximityStartTime = CACurrentMediaTime() // Record when it started
@@ -1025,7 +877,7 @@ class AudioManager {
     }
     
     func stopAllProximitySounds() {
-        guard isProximityActive, let node = proximityLoopNode else { 
+        guard isProximityActive, let player = proximityPlayerNode else { 
             isProximityActive = false
             proximityPendingStopWorkItem?.cancel()
             proximityPendingStopWorkItem = nil
@@ -1046,17 +898,7 @@ class AudioManager {
                 guard let self = self, self.isProximityActive else { return }
                 self.isProximityActive = false
                 
-                guard let node = self.proximityLoopNode else { return }
-                
-                // Fade out then stop
-                node.removeAction(forKey: "proxFadeIn")
-                let fadeOut = SKAction.changeVolume(to: 0.0, duration: 0.2)
-                let stop = SKAction.stop()
-                let remove = SKAction.removeFromParent()
-                let sequence = SKAction.sequence([fadeOut, stop, remove])
-                node.run(sequence) {
-                    self.proximityLoopNode = nil
-                }
+                self.proximityPlayerNode?.stop()
                 self.proximityPendingStopWorkItem = nil
             }
             
@@ -1065,63 +907,48 @@ class AudioManager {
             return
         }
         
-        // Minimum time has elapsed, fade out then stop
+        // Minimum time has elapsed, stop immediately
         isProximityActive = false
         
         // Cancel any pending stop
         proximityPendingStopWorkItem?.cancel()
         proximityPendingStopWorkItem = nil
         
-        // Cancel any fade-in
-        node.removeAction(forKey: "proxFadeIn")
-        
-        // Fade out smoothly, then stop and remove
-        let fadeOut = SKAction.changeVolume(to: 0.0, duration: 0.2)
-        let stop = SKAction.stop()
-        let remove = SKAction.removeFromParent()
-        let sequence = SKAction.sequence([fadeOut, stop, remove])
-        node.run(sequence) { [weak self] in
-            self?.proximityLoopNode = nil
-        }
+        proximityPlayerNode?.stop()
     }
     
     private func playSoundEffect(_ key: String, on scene: SKScene, volumeMultiplier: Float = 1.0) {
         guard !isSoundMuted else { return }
+        
         let clampedMultiplier = max(0.0, min(1.0, volumeMultiplier))
-        let targetVolume = (soundVolume * sfxMix) * clampedMultiplier
-        guard targetVolume > 0.0 else { return }
-        
-        guard let filePath = soundEffectFilePaths[key] else {
+        guard let buffer = sfxBuffers[key] else {
+            print("⚠️ AudioManager: SFX buffer for key '\(key)' not loaded")
             return
         }
         
-        if sfxNodePools[key] == nil {
-            _ = ensureSFXNodePool(for: key, filePath: filePath)
-        }
+        ensureAudioEngineRunning()
         
-        guard var pool = sfxNodePools[key] else {
+        guard let sfxMixer = sfxMixerNode, let engine = audioEngine else {
+            print("❌ AudioManager: Audio engine or SFX mixer not available")
             return
         }
         
-        let node = pool.nextNode()
-        sfxNodePools[key] = pool
-        
-        // If node is already in a scene (from preloading), remove it first
-        if node.parent !== nil && node.parent !== scene {
-            node.removeFromParent()
+        if sfxPlayerNodes.isEmpty {
+            // Fallback: lazily create a single SFX player if pool was not created
+            let player = AVAudioPlayerNode()
+            sfxPlayerNodes.append(player)
+            engine.attach(player)
+            engine.connect(player, to: sfxMixer, format: buffer.format)
         }
         
-        // Add to current scene if not already there
-        if node.parent !== scene {
-            scene.addChild(node)
-        }
+        let index = nextSFXPlayerIndex % sfxPlayerNodes.count
+        nextSFXPlayerIndex = (nextSFXPlayerIndex + 1) % sfxPlayerNodes.count
         
-        // Stop any existing playback, set volume, and play
-        let stopAction = SKAction.stop()
-        let setVolume = SKAction.changeVolume(to: targetVolume, duration: 0.0)
-        let playAction = SKAction.play()
-        let sequence = SKAction.sequence([stopAction, setVolume, playAction])
-        node.run(sequence)
+        let playerNode = sfxPlayerNodes[index]
+        playerNode.stop()
+        playerNode.volume = clampedMultiplier
+        playerNode.scheduleBuffer(buffer, at: nil, options: [], completionHandler: nil)
+        playerNode.play()
     }
     
     // MARK: - Size-Based Layer Management
@@ -1197,34 +1024,7 @@ class AudioManager {
     
     private func updateAllSFXNodeVolumes() {
         let targetVolume = isSoundMuted ? 0.0 : (soundVolume * sfxMix)
-        for (_, pool) in sfxNodePools {
-            for node in pool.nodes {
-                node.run(SKAction.changeVolume(to: targetVolume, duration: 0.05))
-            }
-        }
-        
-        if let loopNode = powerUpLoopAudioNode {
-            let volume = isSoundMuted ? 0.0 : (soundVolume * sfxMix)
-            loopNode.run(SKAction.changeVolume(to: volume, duration: 0.05))
-        }
-    }
-    
-    private func warmUpAudioNode(_ node: SKAudioNode,
-                                 finalVolume: Float,
-                                 removeFromParentAfterWarmUp: Bool = false) {
-        // SHORT-TERM FIX: Do not call play/stop during warm-up to avoid audible pops
-        // and spikes when SFX nodes are initialized on loading screens.
-        node.removeAllActions()
-        
-        // Ensure node is silent during warm-up
-        node.run(SKAction.changeVolume(to: 0.0, duration: 0.0))
-        
-        if removeFromParentAfterWarmUp {
-            node.removeFromParent()
-        } else {
-            // Set the final intended volume so the node is ready when actually used
-            node.run(SKAction.changeVolume(to: finalVolume, duration: 0.0))
-        }
+        sfxMixerNode?.outputVolume = targetVolume
     }
     
     private func ensureMenuMusicBuffersLoaded() -> Bool {
@@ -1277,7 +1077,41 @@ class AudioManager {
         return nil
     }
     
-    // Note: loadSoundEffect() method removed - we now store file paths instead of AVAudioPlayer instances
-    // Sound effects are played using SKAction.playSoundFileNamed() which handles file loading automatically
+    private func loadSFXBuffer(fileName: String, extensions: [String]) -> AVAudioPCMBuffer? {
+        for ext in extensions {
+            var url: URL?
+            
+            // First try in SFX subdirectory
+            url = Bundle.main.url(forResource: fileName, withExtension: ext, subdirectory: "SFX")
+            
+            // If not found, try root directory
+            if url == nil {
+                url = Bundle.main.url(forResource: fileName, withExtension: ext)
+            }
+            
+            guard let fileURL = url else {
+                continue
+            }
+            
+            do {
+                let audioFile = try AVAudioFile(forReading: fileURL)
+                let format = audioFile.processingFormat
+                let frameCount = AVAudioFrameCount(audioFile.length)
+                
+                guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else {
+                    print("⚠️ AudioManager: Failed to create SFX buffer for \(fileName).\(ext)")
+                    continue
+                }
+                
+                try audioFile.read(into: buffer)
+                return buffer
+            } catch {
+                print("⚠️ AudioManager: Failed to load SFX \(fileName).\(ext): \(error)")
+                continue
+            }
+        }
+        
+        return nil
+    }
     
 }
