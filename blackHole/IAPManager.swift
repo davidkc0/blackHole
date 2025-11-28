@@ -70,6 +70,31 @@ class IAPManager {
         }
     }
     
+    /// Check for any pending or completed transactions at app launch
+    @MainActor
+    func processPendingTransactions() async {
+        print("🔄 IAPManager: Checking for pending/completed transactions...")
+        
+        // Check all transactions (including pending ones)
+        for await result in Transaction.all {
+            switch result {
+            case .verified(let transaction):
+                print("🔄 IAPManager: Found transaction: \(transaction.productID)")
+                if transaction.productID == removeAdsProductID {
+                    // This is our Remove Ads transaction
+                    if transaction.revocationDate == nil {
+                        // Transaction is active, complete it
+                        await transaction.finish()
+                        handlePurchaseSuccess()
+                        print("✅ IAPManager: Processed completed Remove Ads transaction")
+                    }
+                }
+            case .unverified(let transaction, let error):
+                print("⚠️ IAPManager: Unverified transaction: \(transaction.productID), error: \(error)")
+            }
+        }
+    }
+    
     // MARK: - Product Loading
     
     /// Fetch available products from App Store
@@ -152,7 +177,10 @@ class IAPManager {
                 
             case .pending:
                 print("⚠️ IAPManager: Purchase pending (requires approval)")
-                throw IAPError.pendingApproval
+                print("ℹ️ IAPManager: Transaction listener will complete this when approved")
+                // Don't throw error - transaction listener will handle it when approved
+                // Return false so UI doesn't show success yet, but don't treat as error
+                return false
                 
             @unknown default:
                 print("❌ IAPManager: Unknown purchase result")
@@ -217,10 +245,15 @@ class IAPManager {
     /// Monitor Transaction.updates for purchase events
     private func listenForTransactions() {
         transactionListenerTask = Task {
+            print("🔄 IAPManager: Transaction listener started")
             for await result in Transaction.updates {
-                if case .verified(let transaction) = result {
+                print("🔄 IAPManager: Transaction update received")
+                switch result {
+                case .verified(let transaction):
+                    print("🔄 IAPManager: Verified transaction: \(transaction.productID)")
                     // Check if this is our Remove Ads product
                     if transaction.productID == removeAdsProductID {
+                        print("🔄 IAPManager: Processing Remove Ads transaction")
                         // Complete the transaction
                         await transaction.finish()
                         
@@ -229,6 +262,8 @@ class IAPManager {
                         
                         print("✅ IAPManager: Transaction update received and processed")
                     }
+                case .unverified(let transaction, let error):
+                    print("⚠️ IAPManager: Unverified transaction: \(transaction.productID), error: \(error)")
                 }
             }
         }

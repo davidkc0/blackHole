@@ -31,7 +31,7 @@
     }
   ],
   "settings" : {
-    "_askToBuyEnabled" : true,
+    "_askToBuyEnabled" : false,
     "_billingGracePeriodEnabled" : false,
     "_billingIssuesEnabled" : true,
     "_disableDialogs" : false,

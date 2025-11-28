@@ -32,6 +32,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // Initialize IAPManager and restore purchases (async, non-blocking)
         Task {
             do {
+                // First process any pending/completed transactions
+                await IAPManager.shared.processPendingTransactions()
+                // Then restore purchases
                 _ = try await IAPManager.shared.restorePurchases()
             } catch {
                 print("⚠️ Failed to restore purchases: \(error.localizedDescription)")
