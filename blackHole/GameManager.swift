@@ -15,7 +15,7 @@ class GameManager {
     
     // Ad counter properties
     private(set) var gamesPlayedSinceLastAd: Int = 0
-    private let showAdEveryNGames: Int = 3  // Show ad every 3rd game
+    private let showAdEveryNGames: Int = 2  // Show ad every 3rd game
     
     private let highScoreKey = "blackHole_highScore"
     

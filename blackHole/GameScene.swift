@@ -2882,6 +2882,14 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         // Increment game over counter
         GameManager.shared.incrementGameOverCount()
         
+        // Check if we should request App Store review
+        let isNewHighScore = GameManager.shared.currentScore > GameManager.shared.highScore
+        ReviewManager.shared.recordGameFinished(
+            score: GameManager.shared.currentScore,
+            playTime: sessionDuration,
+            isNewHighScore: isNewHighScore
+        )
+        
         // Wait a brief moment for game over sound to start, then show ad
         // Check if we should show an ad
         if GameManager.shared.shouldShowAd() {
@@ -3244,6 +3252,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         }
         
         AudioManager.shared.switchToMenuMusic()
+        
+        // Start new review tracking session when returning to menu
+        ReviewManager.shared.startNewSession()
         
         // Reset game state before returning to menu
         GameManager.shared.resetScore()

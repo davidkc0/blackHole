@@ -80,6 +80,9 @@ class MenuScene: SKScene {
         // CENTER THE COORDINATE SYSTEM - THIS IS CRITICAL!
         anchorPoint = CGPoint(x: 0.5, y: 0.5)
         
+        // Start new review tracking session when returning to menu
+        ReviewManager.shared.startNewSession()
+        
         // ✅ Only setup essential UI immediately - buttons must be tappable
         backgroundColor = UIColor(white: 0.02, alpha: 1.0)
         setupMenuUI()
@@ -117,8 +120,24 @@ class MenuScene: SKScene {
         AudioManager.shared.setSoundVolume(soundVolume)
         AudioManager.shared.setMusicMuted(musicMuted)
         AudioManager.shared.setSoundMuted(soundMuted)
+        
+        // switchToMenuMusic ensures buffers are loaded (will reload if needed via ensureMenuMusicBuffersLoaded)
         AudioManager.shared.switchToMenuMusic()
+        
+        // Play music - switchToMenuMusic handles buffer loading, but add retry as safety net
         AudioManager.shared.playBackgroundMusic()
+        
+        // Safety retry: if music still isn't ready after a moment, retry once
+        // This handles edge cases where LoadingScene hasn't finished initialization yet
+        run(SKAction.wait(forDuration: 0.5)) { [weak self] in
+            guard let self = self else { return }
+            // Only retry if music isn't playing yet
+            if !AudioManager.shared.isMenuMusicReady {
+                print("⚠️ MenuScene: Menu music not ready, attempting retry...")
+                AudioManager.shared.switchToMenuMusic()
+                AudioManager.shared.playBackgroundMusic()
+            }
+        }
         
         // Show Game Center access point
         GameCenterManager.shared.setAccessPointVisible(true, context: .menu)

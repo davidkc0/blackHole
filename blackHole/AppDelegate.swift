@@ -18,15 +18,17 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {                                                                                           
         print("🚀 App launching - staged initialization...")
         
+        // Start new review tracking session on app launch
+        ReviewManager.shared.startNewSession()
+        
         // Initialize Game Center
         GameCenterManager.shared.authenticatePlayer()
 
         // Configure audio session
         configureAudioSession()
         
-        // Preload core audio assets early so later scenes don't need to spin up
-        // the audio graph for the first time (which can cause pops/clips).
-        AudioManager.shared.preloadMenuMusic()
+        // Note: Menu music preloading is handled by LoadingScene with proper coordination
+        // to avoid race conditions. Sound effects can be preloaded early.
         AudioManager.shared.preloadSoundEffects()
         
         // Initialize IAPManager and restore purchases (async, non-blocking)

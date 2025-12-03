@@ -99,10 +99,21 @@ class AudioManager {
     
     // MARK: - Menu Music Preloading
     
+    /// Returns true if menu music buffers are loaded and ready
+    var isMenuMusicReady: Bool {
+        return !menuMusicBuffers.isEmpty
+    }
+    
     @discardableResult
     func preloadMenuMusic() -> Bool {
         menuMusicLoadLock.lock()
         defer { menuMusicLoadLock.unlock() }
+        
+        // ✅ Check if already loaded before clearing buffers
+        if !menuMusicBuffers.isEmpty {
+            print("ℹ️ AudioManager: Menu music already loaded (\(menuMusicBuffers.count) buffer(s)), skipping preload")
+            return true
+        }
         
         print("🎵 AudioManager: Preloading menu music (track: big_pad)...")
         menuMusicBuffers.removeAll()
@@ -121,7 +132,7 @@ class AudioManager {
             let sampleRate = format.sampleRate
             let frameCount = Double(buffer.frameLength)
             loopDuration = frameCount / sampleRate
-            print("✅ AudioManager: Menu music loaded (game_music_layer5), loop duration: \(String(format: "%.2f", loopDuration))s")
+            print("✅ AudioManager: Menu music loaded, loop duration: \(String(format: "%.2f", loopDuration))s")
             loadSucceeded = true
         } else {
             print("⚠️ AudioManager: Failed to load menu music: \(fileName)")
