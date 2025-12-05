@@ -2927,9 +2927,15 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             print("⚠️ Game over UI already shown, skipping")
             return
         }
-        hasShownGameOverUI = true
         
-        guard let skView = view else { return }
+        // CRITICAL: Check if this scene is still the active scene
+        // If not, don't add views (another scene might be active now)
+        guard let skView = view, skView.scene === self else {
+            print("⚠️ Scene no longer active, skipping game over UI")
+            return
+        }
+        
+        hasShownGameOverUI = true
         
         if gameOverBlurView == nil {
             let blurEffect = UIBlurEffect(style: .dark)
@@ -3269,8 +3275,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     }
     
     fileprivate func restartGame() {
-        // Clean up game over modal
-        hudNode.childNode(withName: "gameOverModal")?.removeFromParent()
+        // Clean up game over modal - MUST call removeGameOverUI() to remove views from SKView
+        // This prevents views from persisting when a new scene is presented
+        removeGameOverUI()
         restartButton = nil
         hasTappedRestartButton = false
         
