@@ -781,9 +781,22 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         }
         
         // If not clustering or cluster failed, use normal spawning logic
-        while validPosition == nil && attempts < 10 {
-            // Use predictive positioning for intelligent spawning
-            let spawnPosition = predictiveEdgePosition()
+        // Giant stars need special handling - spawn them at their required minimum distance
+        let maxAttempts = (star.starType == .redSupergiant || star.starType == .orangeGiant) ? 20 : 10
+        
+        while validPosition == nil && attempts < maxAttempts {
+            let spawnPosition: CGPoint
+            
+            if star.starType == .redSupergiant {
+                // Red supergiants must spawn 1200-2000pt away
+                spawnPosition = generateGiantSpawnPosition(minDistance: 1200, maxDistance: 2000)
+            } else if star.starType == .orangeGiant {
+                // Orange giants spawn 800-1200pt away
+                spawnPosition = generateGiantSpawnPosition(minDistance: 800, maxDistance: 1200)
+            } else {
+                // Use predictive positioning for intelligent spawning
+                spawnPosition = predictiveEdgePosition()
+            }
             
             if isSpawnPositionValid(spawnPosition, for: star) {
                 validPosition = spawnPosition
@@ -799,12 +812,18 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         }
         
         // Ensure star spawns off-screen (optimized - does cheap check first)
+        // Skip for giant stars - their minimum spawn distance already guarantees off-screen placement
         if let position = validPosition {
-            let adjustedPosition = ensurePositionOffScreen(position)
-            if isSpawnPositionValid(adjustedPosition, for: star) {
-                validPosition = adjustedPosition
+            if star.starType == .redSupergiant || star.starType == .orangeGiant {
+                // Giant stars spawn at 1200pt+ away - no need to adjust
+                // ensurePositionOffScreen would push them closer, causing validation failures
             } else {
-                validPosition = nil
+                let adjustedPosition = ensurePositionOffScreen(position)
+                if isSpawnPositionValid(adjustedPosition, for: star) {
+                    validPosition = adjustedPosition
+                } else {
+                    validPosition = nil
+                }
             }
         }
         
@@ -1010,6 +1029,20 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         }
     }
     
+    /// Generate spawn position for giant stars at their required distance from black hole
+    private func generateGiantSpawnPosition(minDistance: CGFloat, maxDistance: CGFloat) -> CGPoint {
+        // Random angle around the black hole
+        let angle = CGFloat.random(in: 0...(2 * .pi))
+        // Random distance within the specified range
+        let distance = CGFloat.random(in: minDistance...maxDistance)
+        
+        // Calculate position
+        let x = blackHole.position.x + cos(angle) * distance
+        let y = blackHole.position.y + sin(angle) * distance
+        
+        return CGPoint(x: x, y: y)
+    }
+    
     private func startColorChangeWarning() {
         guard !isGameOver else { return }
         warningWasActive = true
@@ -1104,9 +1137,20 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     
     private func removeDistantStars() {
         // Scale removal distance with black hole size (larger black holes have larger gravity range)
-        let removalDistance = max(GameConstants.starMaxDistanceFromScreen, blackHole.currentDiameter * 10)
+        let baseRemovalDistance = max(GameConstants.starMaxDistanceFromScreen, blackHole.currentDiameter * 10)
         
         stars.removeAll { star in
+            // Giant stars need extended removal distance to match their spawn distance
+            let removalDistance: CGFloat
+            switch star.starType {
+            case .redSupergiant:
+                removalDistance = max(baseRemovalDistance, 2500) // Beyond max spawn of 2000
+            case .orangeGiant:
+                removalDistance = max(baseRemovalDistance, 1500) // Extended for larger spawn range
+            default:
+                removalDistance = baseRemovalDistance
+            }
+            
             let dist = distance(from: star.position, to: blackHole.position)
             if dist > removalDistance {
                 if let starName = star.name {
@@ -3246,6 +3290,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     }
     
     fileprivate func returnToMenu() {
+        // CRITICAL: Capture SKView reference BEFORE removing UI, as scene transition may nil it
+        guard let skView = self.view else { return }
+        
         AudioManager.shared.stopAllProximitySounds()
         HapticManager.shared.stopAllDangerProximityHaptics()
         AudioManager.shared.stopBackgroundMusic()
@@ -3264,21 +3311,39 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         
         // Reset game state before returning to menu
         GameManager.shared.resetScore()
-        removeGameOverUI()
+        
+        // Remove game over UI views directly from the SKView
+        gameOverBlurView?.removeFromSuperview()
+        gameOverBlurView = nil
+        gameOverOverlayView?.removeFromSuperview()
+        gameOverOverlayView = nil
+        gameOverOverlayScene = nil
+        restartButton = nil
+        returnToMenuButton = nil
         
         // Create menu scene
         let menuScene = MenuScene(size: size)
         menuScene.scaleMode = .aspectFill
         
         // Transition to menu
-        view?.presentScene(menuScene, transition: SKTransition.fade(withDuration: 0.5))
+        skView.presentScene(menuScene, transition: SKTransition.fade(withDuration: 0.5))
     }
     
     fileprivate func restartGame() {
-        // Clean up game over modal - MUST call removeGameOverUI() to remove views from SKView
-        // This prevents views from persisting when a new scene is presented
-        removeGameOverUI()
+        // CRITICAL: Capture SKView reference BEFORE removing UI, as scene transition may nil it
+        guard let skView = self.view else { return }
+        
+        // Remove game over UI views directly from the SKView
+        // This ensures views are removed even if the scene's view reference becomes nil during transition
+        gameOverBlurView?.removeFromSuperview()
+        gameOverBlurView = nil
+        gameOverOverlayView?.removeFromSuperview()
+        gameOverOverlayView = nil
+        gameOverOverlayScene = nil
+        
+        // Clean up remaining references
         restartButton = nil
+        returnToMenuButton = nil
         hasTappedRestartButton = false
         
         // Reset game manager
@@ -3292,7 +3357,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         // Create new scene programmatically
         let newScene = GameScene(size: size)
         newScene.scaleMode = .aspectFill
-        view?.presentScene(newScene, transition: SKTransition.fade(withDuration: 0.5))
+        skView.presentScene(newScene, transition: SKTransition.fade(withDuration: 0.5))
     }
     
     // MARK: - Helper Functions

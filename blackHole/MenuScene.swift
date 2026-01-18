@@ -23,6 +23,7 @@ class MenuScene: SKScene {
     // UI Elements
     private var playButton: MenuButton!
     private var timedModeButton: MenuButton!
+    private var mainMenuRemoveAdsButton: MenuButton!
     private var settingsIconButton: IconButton!
     private var statsIconButton: IconButton!
     
@@ -193,6 +194,9 @@ class MenuScene: SKScene {
         } else if timedModeButton.contains(point: location) {
             timedModeButton.animatePress()
             print("✅ TIMED MODE button pressed")
+        } else if mainMenuRemoveAdsButton.contains(point: location) {
+            mainMenuRemoveAdsButton.animatePress()
+            print("✅ REMOVE ADS button pressed")
         } else if settingsIconButton.contains(point: location) {
             settingsIconButton.animatePress()
             print("✅ SETTINGS button pressed")
@@ -237,6 +241,10 @@ class MenuScene: SKScene {
             timedModeButton.animateRelease()
             print("⏱ TIMED MODE button tapped")
             timedModeButton.onTap?()
+        } else if mainMenuRemoveAdsButton.contains(point: location) {
+            mainMenuRemoveAdsButton.animateRelease()
+            print("💰 REMOVE ADS button tapped")
+            mainMenuRemoveAdsButton.onTap?()
         } else if settingsIconButton.contains(point: location) {
             settingsIconButton.animateRelease()
             print("⚙️ SETTINGS button tapped")
@@ -430,6 +438,9 @@ class MenuScene: SKScene {
         // Timed Mode Button
         setupTimedModeButton()
         
+        // Remove Ads Button (main menu)
+        setupMainMenuRemoveAdsButton()
+        
         // Icon Buttons
         setupIconButtons()
         applyInitialAnimations()
@@ -514,7 +525,7 @@ class MenuScene: SKScene {
         let screenSize = UIScreen.main.bounds.size
         let scale = min(screenSize.width, screenSize.height) / 400.0  // Scale factor for phone screens
         
-        playButton = MenuButton(text: "PLAY", size: .large)
+        playButton = MenuButton(text: "PLAY", size: .large, fixedWidth: 220)
         playButton.position = CGPoint(x: 0, y: 0)
         playButton.zPosition = 100
         playButton.onTap = { [weak self] in
@@ -527,14 +538,94 @@ class MenuScene: SKScene {
         let screenSize = UIScreen.main.bounds.size
         let scale = min(screenSize.width, screenSize.height) / 400.0  // Scale factor for phone screens
         
-        timedModeButton = MenuButton(text: "TIMED MODE", size: .medium)
-        timedModeButton.position = CGPoint(x: 0, y: -80 * scale)  // Scale position
+        timedModeButton = MenuButton(text: "TIMED MODE", size: .medium, fixedWidth: 220)
+        timedModeButton.position = CGPoint(x: 0, y: -80 * scale)  // Same spacing as Play to Timed Mode
         timedModeButton.zPosition = 100
         timedModeButton.alpha = 0.6  // Indicate not yet available
         timedModeButton.onTap = { [weak self] in
             self?.showComingSoon()
         }
         addChild(timedModeButton)
+    }
+    
+    private func setupMainMenuRemoveAdsButton() {
+        let screenSize = UIScreen.main.bounds.size
+        let scale = min(screenSize.width, screenSize.height) / 400.0
+        
+        // Check if already purchased
+        let hasPurchased = IAPManager.shared.checkPurchaseStatus()
+        let buttonText = hasPurchased ? "ADS REMOVED ✓" : "REMOVE ADS"
+        
+        mainMenuRemoveAdsButton = MenuButton(text: buttonText, size: .medium, fixedWidth: 220)
+        mainMenuRemoveAdsButton.position = CGPoint(x: 0, y: -160 * scale)  // Same 80pt spacing below Timed Mode
+        mainMenuRemoveAdsButton.zPosition = 100
+        
+        if hasPurchased {
+            mainMenuRemoveAdsButton.alpha = 0.6
+            mainMenuRemoveAdsButton.isUserInteractionEnabled = false
+        } else {
+            mainMenuRemoveAdsButton.onTap = { [weak self] in
+                self?.handleMainMenuRemoveAdsPurchase()
+            }
+        }
+        
+        // Set up notification observer for purchase success
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleMainMenuPurchaseSuccessNotification),
+            name: NSNotification.Name("RemoveAdsPurchased"),
+            object: nil
+        )
+        
+        addChild(mainMenuRemoveAdsButton)
+    }
+    
+    @objc private func handleMainMenuPurchaseSuccessNotification() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.mainMenuRemoveAdsButton.updateText("ADS REMOVED ✓")
+            self.mainMenuRemoveAdsButton.alpha = 0.6
+            self.mainMenuRemoveAdsButton.isUserInteractionEnabled = false
+            self.mainMenuRemoveAdsButton.onTap = nil
+        }
+    }
+    
+    private func handleMainMenuRemoveAdsPurchase() {
+        guard !isPurchasingRemoveAds else { return }
+        isPurchasingRemoveAds = true
+        
+        let originalText = mainMenuRemoveAdsButton.text
+        mainMenuRemoveAdsButton.updateText("LOADING...")
+        mainMenuRemoveAdsButton.isUserInteractionEnabled = false
+        
+        Task { @MainActor in
+            do {
+                let products = try await IAPManager.shared.loadProducts()
+                
+                if products.isEmpty {
+                    throw IAPManager.IAPError.productNotAvailable
+                }
+                
+                let success = try await IAPManager.shared.purchaseRemoveAds()
+                
+                self.isPurchasingRemoveAds = false
+                
+                if success {
+                    self.mainMenuRemoveAdsButton.updateText("ADS REMOVED ✓")
+                    self.mainMenuRemoveAdsButton.alpha = 0.6
+                    self.mainMenuRemoveAdsButton.isUserInteractionEnabled = false
+                    self.mainMenuRemoveAdsButton.onTap = nil
+                } else {
+                    self.mainMenuRemoveAdsButton.updateText(originalText.isEmpty ? "REMOVE ADS" : originalText)
+                    self.mainMenuRemoveAdsButton.isUserInteractionEnabled = true
+                }
+            } catch {
+                self.isPurchasingRemoveAds = false
+                self.mainMenuRemoveAdsButton.updateText(originalText.isEmpty ? "REMOVE ADS" : originalText)
+                self.mainMenuRemoveAdsButton.isUserInteractionEnabled = true
+                print("❌ Main menu purchase error: \(error.localizedDescription)")
+            }
+        }
     }
     
     private func setupIconButtons() {
@@ -579,6 +670,17 @@ class MenuScene: SKScene {
         let scaleUpTimedMode = SKAction.scale(to: 1.0, duration: 0.3)
         scaleUpTimedMode.timingMode = .easeOut
         timedModeButton.run(SKAction.group([fadeInTimedMode, scaleUpTimedMode]))
+        
+        // Fade in the remove ads button
+        let hasPurchased = IAPManager.shared.checkPurchaseStatus()
+        mainMenuRemoveAdsButton.alpha = 0
+        mainMenuRemoveAdsButton.setScale(0.9)
+        let fadeInRemoveAds = SKAction.fadeIn(withDuration: 0.3)
+        let scaleUpRemoveAds = SKAction.scale(to: 1.0, duration: 0.3)
+        scaleUpRemoveAds.timingMode = .easeOut
+        let finalAlpha = hasPurchased ? 0.6 : 1.0
+        let fadeToFinal = SKAction.fadeAlpha(to: CGFloat(finalAlpha), duration: 0.3)
+        mainMenuRemoveAdsButton.run(SKAction.group([fadeToFinal, scaleUpRemoveAds]))
         
         // Fade in the settings button
         settingsIconButton.alpha = 0

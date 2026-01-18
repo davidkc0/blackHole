@@ -37,7 +37,7 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		FE45B5312EA85F310022F861 /* Exceptions for "blackHole" folder in "blackHole" target */ = {
+		FE3E1B9F2E9890D200BE99F7 /* Exceptions for "blackHole" folder in "blackHole" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
@@ -50,7 +50,7 @@
 		FE3E1B032E9890D000BE99F7 /* blackHole */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				FE45B5312EA85F310022F861 /* Exceptions for "blackHole" folder in "blackHole" target */,
+				FE3E1B9F2E9890D200BE99F7 /* Exceptions for "blackHole" folder in "blackHole" target */,
 			);
 			path = blackHole;
 			sourceTree = "<group>";
