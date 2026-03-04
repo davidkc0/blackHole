@@ -45,6 +45,7 @@ class TextureCache {
     private var glowTextures: [String: SKTexture] = [:]
     private var particleTextures: [String: SKTexture] = [:]
     private var hasPreloaded = false  // Prevent duplicate preloading
+    private let lock = NSLock()  // Thread-safety for dictionary access
     
     private init() {}
     
@@ -55,36 +56,51 @@ class TextureCache {
     func getStarCoreTexture(type: StarType, sizeBucket: SizeBucket) -> SKTexture {
         let key = "\(type.displayName)_core_\(sizeBucket.rawValue)"
         
+        lock.lock()
         if let cached = coreTextures[key] {
+            lock.unlock()
             return cached
         }
+        lock.unlock()
         
         let texture = generateStarCoreTexture(color: type.uiColor, size: sizeBucket.textureSize)
+        lock.lock()
         coreTextures[key] = texture
+        lock.unlock()
         return texture
     }
     
     func getStarGlowTexture(type: StarType, sizeBucket: SizeBucket) -> SKTexture {
         let key = "\(type.displayName)_glow_\(sizeBucket.rawValue)"
         
+        lock.lock()
         if let cached = glowTextures[key] {
+            lock.unlock()
             return cached
         }
+        lock.unlock()
         
         let texture = generateStarGlowTexture(color: type.uiColor, size: sizeBucket.textureSize)
+        lock.lock()
         glowTextures[key] = texture
+        lock.unlock()
         return texture
     }
     
     func getParticleTexture(size: CGFloat) -> SKTexture {
         let key = "particle_\(Int(size))"
         
+        lock.lock()
         if let cached = particleTextures[key] {
+            lock.unlock()
             return cached
         }
+        lock.unlock()
         
         let texture = generateParticleTexture(size: size)
+        lock.lock()
         particleTextures[key] = texture
+        lock.unlock()
         return texture
     }
     
@@ -112,7 +128,10 @@ class TextureCache {
         }
         
         let elapsed = CACurrentMediaTime() - startTime
-        print("✨ Preloaded \(coreTextures.count + glowTextures.count + particleTextures.count) textures in \(String(format: "%.1f", elapsed * 1000))ms")
+        lock.lock()
+        let totalCount = coreTextures.count + glowTextures.count + particleTextures.count
+        lock.unlock()
+        print("✨ Preloaded \(totalCount) textures in \(String(format: "%.1f", elapsed * 1000))ms")
     }
     
     // MARK: - Texture Generation

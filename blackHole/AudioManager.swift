@@ -38,6 +38,7 @@ class AudioManager {
     
     // Sound Effects (stored as AVAudioPCMBuffer and played via AVAudioEngine)
     private var sfxBuffers: [String: AVAudioPCMBuffer] = [:]
+    private let sfxLoadLock = NSLock()  // Thread-safety for sfxBuffers dictionary
     private(set) var areSoundEffectsPreloaded = false
     
     // SFX playback via AVAudioEngine
@@ -198,7 +199,9 @@ class AudioManager {
     // MARK: - Sound Effects Preloading
     
     func preloadSoundEffects(forceReload: Bool = false) {
+        sfxLoadLock.lock()
         if areSoundEffectsPreloaded && !forceReload {
+            sfxLoadLock.unlock()
             print("ℹ️ AudioManager: Sound effects already preloaded - skipping")
             return
         }
@@ -206,20 +209,29 @@ class AudioManager {
         print("🔊 AudioManager: Preloading sound effects...")
         sfxBuffers.removeAll()
         areSoundEffectsPreloaded = false
+        sfxLoadLock.unlock()
         
+        // Load buffers (can happen outside the lock since each key is unique)
+        var loadedBuffers: [String: AVAudioPCMBuffer] = [:]
         for (key, fileName) in soundEffectFileNames {
             let extensions = ["wav", "mp3", "caf", "aiff", "m4a", "aac"]
             
             if let buffer = loadSFXBuffer(fileName: fileName, extensions: extensions) {
-                sfxBuffers[key] = buffer
+                loadedBuffers[key] = buffer
                 print("✅ AudioManager: Sound effect '\(key)' loaded into buffer")
             } else {
                 print("⚠️ AudioManager: Failed to load sound effect '\(key)': \(fileName)")
             }
         }
         
+        sfxLoadLock.lock()
+        for (key, buffer) in loadedBuffers {
+            sfxBuffers[key] = buffer
+        }
         areSoundEffectsPreloaded = !sfxBuffers.isEmpty
-        print("✅ AudioManager: Loaded \(sfxBuffers.count)/\(soundEffectFileNames.count) sound effect buffers")
+        let count = sfxBuffers.count
+        sfxLoadLock.unlock()
+        print("✅ AudioManager: Loaded \(count)/\(soundEffectFileNames.count) sound effect buffers")
     }
     
     func prepareButtonPressSound() {
@@ -803,7 +815,10 @@ class AudioManager {
     func startPowerUpLoopSound(on scene: SKScene) {
         guard !isSoundMuted && soundVolume > 0.0 else { return }
         
-        guard let buffer = sfxBuffers["powerup"] else {
+        sfxLoadLock.lock()
+        let powerupBuffer = sfxBuffers["powerup"]
+        sfxLoadLock.unlock()
+        guard let buffer = powerupBuffer else {
             print("⚠️ AudioManager: Power-up loop buffer not loaded")
             return
         }
@@ -854,7 +869,10 @@ class AudioManager {
             return
         }
         
-        guard let buffer = sfxBuffers["proximity"] else {
+        sfxLoadLock.lock()
+        let proximityBuffer = sfxBuffers["proximity"]
+        sfxLoadLock.unlock()
+        guard let buffer = proximityBuffer else {
             print("⚠️ AudioManager: Proximity sound buffer not loaded")
             return
         }
@@ -932,7 +950,10 @@ class AudioManager {
         guard !isSoundMuted else { return }
         
         let clampedMultiplier = max(0.0, min(1.0, volumeMultiplier))
-        guard let buffer = sfxBuffers[key] else {
+        sfxLoadLock.lock()
+        let sfxBuffer = sfxBuffers[key]
+        sfxLoadLock.unlock()
+        guard let buffer = sfxBuffer else {
             print("⚠️ AudioManager: SFX buffer for key '\(key)' not loaded")
             return
         }

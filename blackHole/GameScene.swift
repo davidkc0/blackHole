@@ -122,6 +122,12 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     private var isBlackHoleBeingMoved = false
     private var activeTouch: UITouch?
     
+    // Relative movement mode
+    private var useRelativeMovement: Bool {
+        return UserDefaults.standard.bool(forKey: "relativeMovementEnabled")
+    }
+    private var previousTouchLocation: CGPoint?
+    
     // Performance monitoring
     private var recentFrameTimes: [TimeInterval] = []
     private var lastFrameTime: TimeInterval = 0
@@ -2045,7 +2051,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         guard let touch = touches.first else { return }
         let location = touch.location(in: self)
         
-        // Handle paused state - check if tapped black hole to resume
+        // Handle paused state
         if isGamePaused {
             // Check if "Return to Menu" button was tapped
             if let returnToMenuButton = returnToMenuButton {
@@ -2056,11 +2062,17 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
                 }
             }
             
-            let distToBlackHole = distance(from: location, to: blackHole.position)
-            let tapRadius = blackHole.currentDiameter / 2 + 50 // Generous tap area
-            
-            if distToBlackHole <= tapRadius {
+            if useRelativeMovement {
+                // Relative mode: tap anywhere to resume
                 resumeGame(touch: touch, at: location)
+            } else {
+                // Direct mode: must tap on the black hole to resume
+                let distToBlackHole = distance(from: location, to: blackHole.position)
+                let tapRadius = blackHole.currentDiameter / 2 + 50 // Generous tap area
+                
+                if distToBlackHole <= tapRadius {
+                    resumeGame(touch: touch, at: location)
+                }
             }
             return
         }
@@ -2099,8 +2111,13 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             isBlackHoleBeingMoved = true
             activeTouch = touch
             
-            // Move black hole to touch location immediately (in world coordinates)
-            blackHole.position = location
+            if useRelativeMovement {
+                // Relative mode: record anchor point, don't move black hole
+                previousTouchLocation = location
+            } else {
+                // Direct mode: snap black hole to touch location
+                blackHole.position = location
+            }
         }
     }
     
@@ -2113,7 +2130,16 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         guard touch == activeTouch else { return }
         
         let location = touch.location(in: self)
-        blackHole.position = location
+        
+        if useRelativeMovement, let prevLocation = previousTouchLocation {
+            // Relative mode: apply finger delta to black hole position
+            let delta = CGPoint(x: location.x - prevLocation.x, y: location.y - prevLocation.y)
+            blackHole.position = CGPoint(x: blackHole.position.x + delta.x, y: blackHole.position.y + delta.y)
+            previousTouchLocation = location
+        } else {
+            // Direct mode: snap to finger position
+            blackHole.position = location
+        }
     }
     
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
@@ -2162,6 +2188,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         if touch == activeTouch {
             isBlackHoleBeingMoved = false
             activeTouch = nil
+            previousTouchLocation = nil
             
             // PAUSE GAME when finger lifts (if not already game over/paused)
             if !isGameOver && !isGamePaused {
@@ -2185,6 +2212,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         if touch == activeTouch {
             isBlackHoleBeingMoved = false
             activeTouch = nil
+            previousTouchLocation = nil
             
             // PAUSE GAME when touch cancelled (same as finger lift)
             if !isGameOver && !isGamePaused {
@@ -3037,9 +3065,11 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         
         // Show pause UI
         showPauseOverlay()
-        showBlackHoleResumeIndicator()
+        if !useRelativeMovement {
+            showBlackHoleResumeIndicator()
+        }
         
-        print("⏸️ Game paused - tap black hole to resume")
+        print("⏸️ Game paused - tap \(useRelativeMovement ? "anywhere" : "black hole") to resume")
     }
     
     private func resumeGame(touch: UITouch, at location: CGPoint) {
@@ -3056,10 +3086,17 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         removePauseOverlay()
         blackHole.childNode(withName: "resumeIndicator")?.removeFromParent()
         
-        // Move black hole to touch location and track it
-        blackHole.position = location
+        // Start tracking movement
         isBlackHoleBeingMoved = true
         activeTouch = touch
+        
+        if useRelativeMovement {
+            // Relative mode: set anchor point, don't move black hole
+            previousTouchLocation = location
+        } else {
+            // Direct mode: snap black hole to touch location
+            blackHole.position = location
+        }
         
         print("▶️ Game resumed")
     }
@@ -3101,9 +3138,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         pauseTitle.alpha = 0
         pauseOverlay!.addChild(pauseTitle)
         
-        // "Tap Black Hole to Resume" instruction
+        // Resume instruction
         let resumeLabel = SKLabelNode(fontNamed: "NDAstroneer-Bold")
-        resumeLabel.text = "Tap Black Hole to Resume"
+        resumeLabel.text = useRelativeMovement ? "Tap Anywhere to Resume" : "Tap Black Hole to Resume"
         resumeLabel.fontSize = 24
         resumeLabel.fontColor = .white
         resumeLabel.position = CGPoint(x: 0, y: 100)

@@ -49,6 +49,7 @@ class MenuScene: SKScene {
     var musicVolumeSlider: VolumeSlider?
     var removeAdsButton: MenuButton?
     var hapticsToggleButton: IconButton?
+    var freeTouchToggleButton: IconButton?
     var restorePurchasesButton: MenuButton?
     var privacyPolicyButton: MenuButton?
     private var isRestoringPurchases = false
@@ -1094,7 +1095,7 @@ class MenuScene: SKScene {
         
         // Calculate content height
         let titleHeight: CGFloat = 40
-        let settingsRowsHeight = (rowHeight * 3) + (rowSpacing * 2) // Sound Effects + Music + Haptics
+        let settingsRowsHeight = (rowHeight * 4) + (rowSpacing * 3) // Sound Effects + Music + Haptics + Relative Controls
         let removeAdsButtonHeight: CGFloat = 49
         let hapticsToRemoveAdsSpacing: CGFloat = 36
         let closeButtonHeight: CGFloat = 49
@@ -1161,6 +1162,14 @@ class MenuScene: SKScene {
         )
         currentY -= (rowHeight + rowSpacing)
         addHapticsRow(
+            y: currentY,
+            modalWidth: modalWidth,
+            leftPadding: leftPadding,
+            rightPadding: rightPadding,
+            buttonSpacing: buttonSpacing
+        )
+        currentY -= (rowHeight + rowSpacing)
+        addRelativeMovementRow(
             y: currentY,
             modalWidth: modalWidth,
             leftPadding: leftPadding,
@@ -1395,6 +1404,43 @@ class MenuScene: SKScene {
         hapticsToggleButton?.updateIcon(newValue ? "haptic" : "haptic-off")
     }
     
+    private func addRelativeMovementRow(
+        y: CGFloat,
+        modalWidth: CGFloat,
+        leftPadding: CGFloat,
+        rightPadding: CGFloat,
+        buttonSpacing: CGFloat
+    ) {
+        let buttonX = -modalWidth/2 + leftPadding + 20
+        let enabled = UserDefaults.standard.bool(forKey: "relativeMovementEnabled")
+        let iconName = enabled ? "free touch-on" : "free touch-off"
+        let toggleButton = IconButton(iconName: iconName, size: 40, cornerRadius: 5)
+        toggleButton.position = CGPoint(x: buttonX, y: y)
+        toggleButton.zPosition = 1
+        toggleButton.onTap = { [weak self] in
+            self?.toggleRelativeMovement()
+        }
+        freeTouchToggleButton = toggleButton
+        settingsModalContainer!.addChild(toggleButton)
+        
+        let labelNode = SKLabelNode(fontNamed: "NDAstroneer-Regular")
+        labelNode.text = "Free Touch"
+        labelNode.fontSize = 18
+        labelNode.fontColor = UIColor.white.withAlphaComponent(0.7)
+        labelNode.horizontalAlignmentMode = .left
+        labelNode.verticalAlignmentMode = .center
+        let labelX = buttonX + 20 + buttonSpacing
+        labelNode.position = CGPoint(x: labelX, y: y)
+        labelNode.zPosition = 1
+        settingsModalContainer!.addChild(labelNode)
+    }
+    
+    private func toggleRelativeMovement() {
+        let newValue = !UserDefaults.standard.bool(forKey: "relativeMovementEnabled")
+        UserDefaults.standard.set(newValue, forKey: "relativeMovementEnabled")
+        freeTouchToggleButton?.updateIcon(newValue ? "free touch-on" : "free touch-off")
+    }
+    
     @objc private func handlePurchaseSuccessNotification() {
         // Update button state when purchase succeeds
         DispatchQueue.main.async { [weak self] in
@@ -1538,6 +1584,7 @@ class MenuScene: SKScene {
             self.musicVolumeSlider = nil
             self.removeAdsButton = nil
             self.hapticsToggleButton = nil
+            self.freeTouchToggleButton = nil
             self.restorePurchasesButton = nil
             self.privacyPolicyButton = nil
             self.isRestoringPurchases = false
@@ -1640,6 +1687,14 @@ private class SettingsModalScene: SKScene {
             }
         }
 
+        if let freeTouchButton = menuScene.freeTouchToggleButton {
+            let buttonLocation = convert(location, to: freeTouchButton.parent!)
+            if freeTouchButton.contains(point: buttonLocation) {
+                freeTouchButton.animatePress()
+                return
+            }
+        }
+
         if let removeButton = menuScene.removeAdsButton {
             guard let buttonParent = removeButton.parent else { return }
             let buttonLocation = convert(location, to: buttonParent)
@@ -1719,6 +1774,15 @@ private class SettingsModalScene: SKScene {
             if hapticsButton.contains(point: buttonLocation) {
                 hapticsButton.animateRelease()
                 hapticsButton.onTap?()
+                return
+            }
+        }
+
+        if let freeTouchButton = menuScene.freeTouchToggleButton {
+            let buttonLocation = convert(location, to: freeTouchButton.parent!)
+            if freeTouchButton.contains(point: buttonLocation) {
+                freeTouchButton.animateRelease()
+                freeTouchButton.onTap?()
                 return
             }
         }

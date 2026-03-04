@@ -14,6 +14,9 @@ class GameCenterManager: NSObject {
     // MARK: - Properties
     
     private(set) var isAuthenticated = false
+    // All reads/writes to loadedAchievements MUST happen on the main thread.
+    // Reads already occur on main (reportAchievement is called from GameScene).
+    // Writes from async Task blocks dispatch back to main via DispatchQueue.main.async.
     private var loadedAchievements: [String: GKAchievement] = [:]
     private var desiredVisibility: Bool = false
     private var activeContext: AccessPointContext = .menu
@@ -121,10 +124,13 @@ class GameCenterManager: NSObject {
             Task {
                 do {
                     let achievements = try await GKAchievement.loadAchievements()
-                    for achievement in achievements {
-                        self.loadedAchievements[achievement.identifier] = achievement
+                    // Dispatch dictionary writes to main thread (safe from async context)
+                    DispatchQueue.main.async {
+                        for achievement in achievements {
+                            self.loadedAchievements[achievement.identifier] = achievement
+                        }
+                        print("✅ Loaded \(achievements.count) achievements")
                     }
-                    print("✅ Loaded \(achievements.count) achievements")
                 } catch {
                     print("⚠️ Failed to load achievements: \(error.localizedDescription)")
                 }
@@ -135,7 +141,7 @@ class GameCenterManager: NSObject {
     func reportAchievement(identifier: String, percentComplete: Double = 100.0) {
         guard isAuthenticated else { return }
         
-        // Check if already completed
+        // Check if already completed (called from main thread - safe to read directly)
         if let existing = loadedAchievements[identifier], existing.isCompleted {
             return
         }
@@ -149,7 +155,10 @@ class GameCenterManager: NSObject {
             Task {
                 do {
                     try await GKAchievement.report([achievement])
-                    self.loadedAchievements[identifier] = achievement
+                    // Dispatch dictionary write to main thread (safe from async context)
+                    DispatchQueue.main.async {
+                        self.loadedAchievements[identifier] = achievement
+                    }
                     print("✅ Achievement: \(identifier)")
                 } catch {
                     print("⚠️ Achievement failed: \(error.localizedDescription)")
@@ -166,8 +175,11 @@ class GameCenterManager: NSObject {
             Task {
                 do {
                     try await GKAchievement.resetAchievements()
-                    self.loadedAchievements.removeAll()
-                    print("✅ Achievements reset")
+                    // Dispatch dictionary write to main thread (safe from async context)
+                    DispatchQueue.main.async {
+                        self.loadedAchievements.removeAll()
+                        print("✅ Achievements reset")
+                    }
                 } catch {
                     print("❌ Reset failed: \(error.localizedDescription)")
                 }
