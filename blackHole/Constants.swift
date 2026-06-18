@@ -80,7 +80,7 @@ enum GameConstants {
     // Color Change
     static let colorChangeMinInterval: TimeInterval = 5.0
     static let colorChangeMaxInterval: TimeInterval = 12.0
-    static let colorChangeWarningDuration: TimeInterval = 2.0  // Blink for 2 seconds before change
+    static let colorChangeWarningDuration: TimeInterval = 3.0  // Blink for 3 seconds before change
     
     // Star-to-Star Interactions
     static let starGravityMultiplier: CGFloat = 0.15
@@ -274,6 +274,23 @@ extension UIColor {
     }
 }
 
+// MARK: - Timed Mode
+
+enum TimedModeConstants {
+    static let duration: TimeInterval = 60
+    static let countdownSeconds: Int = 3
+    static let correctStarTimeBonus: TimeInterval = 1.0
+    static let wrongColorTimePenalty: TimeInterval = 5.0
+    static let streakMultiplierStep: Int = 10
+    static let maxStreakScoreMultiplier: Int = 3
+    static let baseStarSpawnInterval: TimeInterval = 0.25
+    static let minStarSpawnInterval: TimeInterval = 0.08
+    static let starFieldMinInterval: TimeInterval = 15.0
+    static let starFieldMaxInterval: TimeInterval = 20.0
+    static let passiveShrinkRate: CGFloat = 0.0
+    static let unlockScoreThreshold: Int = 500
+}
+
 // MARK: - Game Center
 
 struct GameCenterConstants {
@@ -281,6 +298,7 @@ struct GameCenterConstants {
     static let highScoreLeaderboardID = "com.singularity.leaderboard.highscore"
     static let totalStarsLeaderboardID = "com.singularity.leaderboard.totalstars"
     static let longestPlaytimeLeaderboardID = "com.singularity.leaderboard.playtime"
+    static let timedHighScoreLeaderboardID = "com.singularity.leaderboard.timed.highscore"
     
     // Achievement IDs - Star Collection
     static let achievement100Stars = "com.singularity.achievement.stars100"
@@ -299,5 +317,14 @@ struct GameCenterConstants {
     // Achievement IDs - Skill-Based
     static let achievementReachSize1000 = "com.singularity.achievement.size1000"
     static let achievementNoShrink = "com.singularity.achievement.noshrink"
+    
+    // Achievement IDs - Timed Mode
+    static let achievementTimedFirst = "com.singularity.achievement.timed.first"
+    static let achievementTimedScore5000 = "com.singularity.achievement.timed.score5000"
+    static let achievementTimedScore15000 = "com.singularity.achievement.timed.score15000"
+    static let achievementTimedStreak10 = "com.singularity.achievement.timed.streak10"
+    static let achievementTimedStreak20 = "com.singularity.achievement.timed.streak20"
+    static let achievementTimedNoPenalty = "com.singularity.achievement.timed.nopenalty"
+    static let achievementTimedScore25000 = "com.singularity.achievement.timed.score25000"
+    static let achievementTimedGames10 = "com.singularity.achievement.timed.games10"
 }
-

@@ -116,17 +116,18 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     private var mergedStarCount: Int = 0
     private var lastMergeTime: TimeInterval = 0
     private var sessionStartTime: TimeInterval = 0
+    private var highScoreAtGameStart: Int = 0  // Snapshot for accurate new-high-score detection
     private var activeOrbitalInteractions: Int = 0  // Track concurrent orbital interactions
     
     // Touch tracking for preventing accidental touches
     private var isBlackHoleBeingMoved = false
     private var activeTouch: UITouch?
     
-    // Relative movement mode
-    private var useRelativeMovement: Bool {
+    // Joystick movement mode
+    private var useJoystickMode: Bool {
         return UserDefaults.standard.bool(forKey: "relativeMovementEnabled")
     }
-    private var previousTouchLocation: CGPoint?
+    private var virtualJoystick: VirtualJoystick?
     
     // Performance monitoring
     private var recentFrameTimes: [TimeInterval] = []
@@ -151,6 +152,24 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     private var hasShownPowerUpTip = false
     private var tipBannerNode: SKNode?
     
+    // Timed Mode
+    var gameMode: GameMode = .normal
+    private var remainingTime: TimeInterval = 0
+    private var timerLabel: SKLabelNode?
+    private var timerCircle: SKSpriteNode?
+    private var timerArcTextures: [SKTexture] = []  // Pre-rendered arcs for 60..0 seconds
+    private var timerBackground: SKShapeNode?
+    private var currentStreak: Int = 0
+    private var bestStreak: Int = 0
+    private var timePenaltiesCount: Int = 0
+    private var isCountdownActive: Bool = false
+    private var lastTimerUpdateTime: TimeInterval = 0
+    private var streakLabel: SKLabelNode?
+    // Dirty-check caches to avoid per-frame SKLabelNode re-rendering
+    private var lastDisplayedTimerValue: Int = -1
+    private var lastDisplayedStreak: Int = -1
+    private var lastFlashState: Bool? = nil
+    
     private var gameOverBlurView: UIVisualEffectView?
     private var gameOverOverlayView: SKView?
     private weak var gameOverOverlayScene: GameOverOverlayScene?
@@ -165,7 +184,11 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         
         // Track session start time for stats
         sessionStartTime = CACurrentMediaTime()
+        highScoreAtGameStart = GameManager.shared.highScore  // Capture before gameplay updates it
         gameStartTime = CACurrentMediaTime()  // Track game start for sound grace period
+        
+        // Set active game mode on GameManager
+        GameManager.shared.activeGameMode = gameMode
         
         setupScene()
         setupCamera()
@@ -189,11 +212,14 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         // Enable proximity sounds after 5 second grace period
         AudioManager.shared.enableProximitySounds()
         
-        // Switch to game music (5 layers - all start playing, only layer 1 unmuted)
-        AudioManager.shared.switchToGameMusic()
+        // Switch to game music (timed mode loads its single track into gameMusicBuffers,
+        // so the same switchToGameMusic path handles both modes identically)
+        AudioManager.shared.switchToGameMusic(timedMode: gameMode == .timed)
         
-        // Initialize music layers for starting size (Phase 1)
-        AudioManager.shared.updateMusicLayersForSize(blackHole.currentDiameter)
+        // Initialize music layers for starting size (only for normal 5-layer mode)
+        if gameMode != .timed {
+            AudioManager.shared.updateMusicLayersForSize(blackHole.currentDiameter)
+        }
         
         // Removed positional audio listener (no panning for proximity)
         
@@ -203,6 +229,241 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         
         // Hide access point during gameplay
         GameCenterManager.shared.hideAccessPointForGameplay()
+        
+        // Listen for review gate notification
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleShowReviewGate),
+            name: ReviewManager.showReviewGateNotification,
+            object: nil
+        )
+        
+        // Setup virtual joystick (added to camera so it stays on screen)
+        if useJoystickMode {
+            let joystick = VirtualJoystick()
+            cameraNode.addChild(joystick)
+            virtualJoystick = joystick
+        }
+        
+        // Setup timed mode
+        if gameMode == .timed {
+            setupTimedMode()
+        }
+    }
+    
+    // MARK: - Timed Mode Setup
+    
+    private func setupTimedMode() {
+        remainingTime = TimedModeConstants.duration
+        lastTimerUpdateTime = 0
+        
+        // Create timer HUD (top center, attached to camera)
+        // Query the actual safe area at runtime to clear the Dynamic Island
+        let screenSize = UIScreen.main.bounds.size
+        var safeTop: CGFloat = 59  // Fallback for older devices
+        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+           let window = windowScene.windows.first {
+            safeTop = window.safeAreaInsets.top
+        }
+        // Position below the Dynamic Island with padding, centered between score & shrink indicator
+        let timerY = screenSize.height / 2 - safeTop - 40
+        
+        let timerBg = SKShapeNode(circleOfRadius: 32)
+        timerBg.fillColor = UIColor(white: 0, alpha: 0.6)
+        timerBg.strokeColor = UIColor(red: 131/255, green: 214/255, blue: 255/255, alpha: 0.5)
+        timerBg.lineWidth = 2
+        timerBg.position = CGPoint(x: 0, y: timerY)
+        timerBg.zPosition = 200
+        cameraNode.addChild(timerBg)
+        timerBackground = timerBg
+        
+        // Timer arc — pre-render all 61 arc states as textures (one per displayed second)
+        // This avoids the catastrophic SKShapeNode.path assignment every frame
+        let arcRadius: CGFloat = 28
+        let arcLineWidth: CGFloat = 4
+        let arcSize = CGSize(width: (arcRadius + arcLineWidth) * 2, height: (arcRadius + arcLineWidth) * 2)
+        timerArcTextures.removeAll()
+        
+        for second in 0...Int(TimedModeConstants.duration) {
+            let fraction = CGFloat(second) / CGFloat(TimedModeConstants.duration)
+            let renderer = UIGraphicsImageRenderer(size: arcSize)
+            let image = renderer.image { ctx in
+                let center = CGPoint(x: arcSize.width / 2, y: arcSize.height / 2)
+                let startAngle: CGFloat = .pi / 2  // 12 o'clock
+                let endAngle = startAngle - (fraction * 2 * .pi)
+                let path = UIBezierPath(arcCenter: center, radius: arcRadius,
+                                        startAngle: startAngle, endAngle: endAngle, clockwise: false)
+                UIColor(red: 131/255, green: 214/255, blue: 255/255, alpha: 0.8).setStroke()
+                path.lineWidth = arcLineWidth
+                path.lineCapStyle = .round
+                path.stroke()
+            }
+            timerArcTextures.append(SKTexture(image: image))
+        }
+        
+        let arcSprite = SKSpriteNode(texture: timerArcTextures.last, size: arcSize)
+        arcSprite.zPosition = 201
+        timerBg.addChild(arcSprite)
+        timerCircle = arcSprite
+        
+        // Timer text
+        let label = SKLabelNode(fontNamed: "NDAstroneer-Bold")
+        label.text = "60"
+        label.fontSize = 22
+        label.fontColor = .white
+        label.verticalAlignmentMode = .center
+        label.horizontalAlignmentMode = .center
+        label.zPosition = 202
+        timerBg.addChild(label)
+        timerLabel = label
+        
+        // Streak label (below timer)
+        let streak = SKLabelNode(fontNamed: "NDAstroneer-Regular")
+        streak.text = ""
+        streak.fontSize = 14
+        streak.fontColor = UIColor(red: 131/255, green: 214/255, blue: 255/255, alpha: 0.8)
+        streak.verticalAlignmentMode = .top
+        streak.horizontalAlignmentMode = .center
+        streak.position = CGPoint(x: 0, y: -38)
+        streak.zPosition = 200
+        timerBg.addChild(streak)
+        streakLabel = streak
+        
+        // Start 3-2-1 countdown
+        startTimedCountdown()
+    }
+    
+    private func startTimedCountdown() {
+        isCountdownActive = true
+        isGamePaused = true  // Freeze gameplay during countdown
+        physicsWorld.speed = 0
+        
+        let countdownNode = SKNode()
+        countdownNode.name = "countdownNode"
+        countdownNode.zPosition = 300
+        cameraNode.addChild(countdownNode)
+        
+        let countdownLabel = SKLabelNode(fontNamed: "NDAstroneer-Bold")
+        countdownLabel.fontSize = 72
+        countdownLabel.fontColor = .white
+        countdownLabel.verticalAlignmentMode = .center
+        countdownLabel.horizontalAlignmentMode = .center
+        countdownNode.addChild(countdownLabel)
+        
+        // 3... 2... 1... GO!
+        let show3 = SKAction.run { countdownLabel.text = "3" }
+        let show2 = SKAction.run { countdownLabel.text = "2" }
+        let show1 = SKAction.run { countdownLabel.text = "1" }
+        let showGo = SKAction.run { countdownLabel.text = "GO!" }
+        let pulse = SKAction.sequence([
+            SKAction.scale(to: 1.3, duration: 0.15),
+            SKAction.scale(to: 1.0, duration: 0.15)
+        ])
+        let wait = SKAction.wait(forDuration: 1.0)
+        let shortWait = SKAction.wait(forDuration: 0.5)
+        
+        let sequence = SKAction.sequence([
+            show3, pulse, wait,
+            show2, pulse, wait,
+            show1, pulse, wait,
+            showGo, pulse, shortWait,
+            SKAction.run { [weak self] in
+                countdownNode.removeFromParent()
+                self?.beginTimedGameplay()
+            }
+        ])
+        
+        countdownNode.run(sequence)
+    }
+    
+    private func beginTimedGameplay() {
+        isCountdownActive = false
+        isGamePaused = false
+        physicsWorld.speed = 1.0
+        lastTimerUpdateTime = CACurrentMediaTime()
+        
+        // Resume timers that were deferred during countdown
+        scheduleNextStarSpawn()
+        scheduleNextColorChange()
+        
+        // Show tutorial tips on first play
+        if !UserDefaults.standard.bool(forKey: "hasShownTimedTips") {
+            showTimedModeTips()
+        }
+    }
+    
+    private func showTimedModeTips() {
+        // Tip 1: immediately
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            self?.showTipBanner(text: "Score as many points as you can in 60 seconds!", duration: 4.0)
+        }
+        // Tip 2: after first tip fades
+        DispatchQueue.main.asyncAfter(deadline: .now() + 6.0) { [weak self] in
+            self?.showTipBanner(text: "Correct stars add 1 second. Wrong colors remove 5 seconds.", duration: 4.0)
+        }
+        // Tip 3: after second tip fades
+        DispatchQueue.main.asyncAfter(deadline: .now() + 11.0) { [weak self] in
+            self?.showTipBanner(text: "Reach 10 and 20-streaks for x2 and x3 score multipliers.", duration: 4.0)
+        }
+        
+        UserDefaults.standard.set(true, forKey: "hasShownTimedTips")
+    }
+    
+    private func timedScoreMultiplier(for streak: Int) -> Int {
+        guard streak > 0 else { return 1 }
+        let bonusTier = streak / TimedModeConstants.streakMultiplierStep
+        return min(1 + bonusTier, TimedModeConstants.maxStreakScoreMultiplier)
+    }
+    
+    private func formatTimedDelta(_ delta: TimeInterval) -> String {
+        let sign = delta >= 0 ? "+" : "-"
+        let absoluteDelta = abs(delta)
+        if absoluteDelta.rounded() == absoluteDelta {
+            return "\(sign)\(Int(absoluteDelta))s"
+        }
+        return String(format: "%@%.1fs", sign, absoluteDelta)
+    }
+    
+    private func adjustTimedModeTime(by delta: TimeInterval, labelText: String, color: UIColor) {
+        guard gameMode == .timed else { return }
+        remainingTime = max(0, remainingTime + delta)
+        showTimedTimeChange(labelText, color: color)
+        refreshTimedTimerDisplay()
+    }
+    
+    private func showTimedTimeChange(_ text: String, color: UIColor) {
+        guard let timerBg = timerBackground else { return }
+        
+        let timeChangeLabel = SKLabelNode(fontNamed: "NDAstroneer-Bold")
+        timeChangeLabel.text = text
+        timeChangeLabel.fontSize = 16
+        timeChangeLabel.fontColor = color
+        timeChangeLabel.position = CGPoint(x: 0, y: -88)
+        timeChangeLabel.zPosition = 205
+        timerBg.addChild(timeChangeLabel)
+        timeChangeLabel.run(SKAction.sequence([
+            SKAction.group([
+                SKAction.moveBy(x: 0, y: 30, duration: 0.8),
+                SKAction.fadeOut(withDuration: 0.8)
+            ]),
+            SKAction.removeFromParent()
+        ]))
+    }
+    
+    private func refreshTimedTimerDisplay() {
+        let displayTime = max(0, Int(ceil(remainingTime)))
+        if displayTime != lastDisplayedTimerValue {
+            timerLabel?.text = "\(displayTime)"
+            lastDisplayedTimerValue = displayTime
+        }
+        updateTimerArc()
+    }
+    
+    private func updateTimerArc() {
+        guard let arc = timerCircle else { return }
+        let displaySecond = max(0, min(Int(TimedModeConstants.duration), Int(ceil(remainingTime))))
+        guard displaySecond < timerArcTextures.count else { return }
+        arc.texture = timerArcTextures[displaySecond]
     }
     
     private func setupPowerUpSystem() {
@@ -609,6 +870,10 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         // Spawn initial stars immediately for better UX
         spawnInitialStars()
         
+        // In timed mode, defer spawn/color timers until after 3-2-1 countdown
+        // (beginTimedGameplay() will call scheduleNextStarSpawn)
+        if gameMode == .timed { return }
+        
         // Dynamic spawn timer that adjusts with black hole size
         scheduleNextStarSpawn()
         
@@ -743,17 +1008,21 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     private func calculateSpawnInterval() -> TimeInterval {
         let size = blackHole.currentDiameter
         
+        // Timed mode: faster base intervals
+        let baseInterval = gameMode == .timed ? TimedModeConstants.baseStarSpawnInterval : GameConstants.baseStarSpawnInterval
+        let minInterval = gameMode == .timed ? TimedModeConstants.minStarSpawnInterval : GameConstants.minStarSpawnInterval
+        
         // No acceleration until threshold
         guard size >= GameConstants.spawnAccelerationThreshold else {
-            return GameConstants.baseStarSpawnInterval
+            return baseInterval
         }
         
         // Progressive acceleration formula
         let accelerationFactor = (size - GameConstants.spawnAccelerationThreshold) / GameConstants.spawnAccelerationFactor
-        let reducedInterval = GameConstants.baseStarSpawnInterval * (1.0 / (1.0 + accelerationFactor))
+        let reducedInterval = baseInterval * (1.0 / (1.0 + accelerationFactor))
         
         // Enforce minimum interval
-        return max(GameConstants.minStarSpawnInterval, reducedInterval)
+        return max(minInterval, reducedInterval)
     }
     
     // MARK: - Game Logic
@@ -1254,7 +1523,25 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             lastCorrectEatTime = CACurrentMediaTime()  // Track for grace period
             
             let multiplier = GameManager.shared.getScoreMultiplier(blackHoleDiameter: blackHole.currentDiameter)
-            let points = star.starType.basePoints * multiplier
+            var points = star.starType.basePoints * multiplier
+            
+            // Timed mode: reward each correct star with time and a simple capped streak multiplier.
+            if gameMode == .timed {
+                currentStreak += 1
+                if currentStreak > bestStreak {
+                    bestStreak = currentStreak
+                }
+                
+                let streakMultiplier = timedScoreMultiplier(for: currentStreak)
+                points *= streakMultiplier
+                adjustTimedModeTime(
+                    by: TimedModeConstants.correctStarTimeBonus,
+                    labelText: formatTimedDelta(TimedModeConstants.correctStarTimeBonus),
+                    color: UIColor(red: 0.2, green: 1.0, blue: 0.4, alpha: 1.0)
+                )
+                print("⏱️ Correct star! +\(TimedModeConstants.correctStarTimeBonus)s (streak: \(currentStreak), multiplier: x\(streakMultiplier), remaining: \(String(format: "%.1f", remainingTime))s)")
+            }
+            
             GameManager.shared.addScore(points)
             
             // Debug: Log size stages as black hole grows (matches star spawning phases)
@@ -1298,7 +1585,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
                 }
                 
                 // Update music layers based on new phase (handles both growth and shrinkage)
-                AudioManager.shared.updateMusicLayersForSize(currentSize)
+                if gameMode != .timed {
+                    AudioManager.shared.updateMusicLayersForSize(currentSize)
+                }
             }
             // Check milestone thresholds
             if beforeSize < 600 && currentSize >= 600 {
@@ -1327,10 +1616,38 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             let currentTime = CACurrentMediaTime()
             let gracePeriod: TimeInterval = 0.5
             
-            if currentTime - lastCorrectEatTime < gracePeriod {
+            if gameMode == .timed {
+                // TIMED MODE: Every wrong color costs time instead of shrinking.
+                adjustTimedModeTime(
+                    by: -TimedModeConstants.wrongColorTimePenalty,
+                    labelText: formatTimedDelta(-TimedModeConstants.wrongColorTimePenalty),
+                    color: .red
+                )
+                timePenaltiesCount += 1
+                currentStreak = 0  // Reset streak
+                
+                GameManager.shared.addScore(GameConstants.wrongColorPenalty)
+                
+                print("⏱️ Wrong color! -\(TimedModeConstants.wrongColorTimePenalty)s (remaining: \(String(format: "%.1f", remainingTime))s, penalties: \(timePenaltiesCount))")
+                
+                // Camera shake
+                let shake = SKAction.sequence([
+                    SKAction.moveBy(x: 5, y: 0, duration: 0.03),
+                    SKAction.moveBy(x: -10, y: 0, duration: 0.03),
+                    SKAction.moveBy(x: 10, y: 0, duration: 0.03),
+                    SKAction.moveBy(x: -5, y: 0, duration: 0.03)
+                ])
+                cameraNode.run(shake)
+                
+                // Play wrong sound + haptic
+                if currentTime - gameStartTime >= SOUND_GRACE_PERIOD {
+                    AudioManager.shared.playWrongSound(on: self)
+                }
+                HapticManager.shared.playWrongStarHaptic(isInDangerZone: remainingTime < 10)
+            } else if currentTime - lastCorrectEatTime < gracePeriod {
                 // Grace period active - just remove star without penalty
-                print("🛡️ Grace period active - no shrink penalty")
-                // Star still gets removed but no shrink/penalty
+                print("🛡️ Grace period active - no penalty")
+                // Star still gets removed but no penalty
             } else {
                 // Grace period expired - apply progressive shrink
                 // Progressive forgiveness: larger black holes shrink less
@@ -1387,7 +1704,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
                     }
                     
                     // Update music layers based on new phase (handles both growth and shrinkage)
-                    AudioManager.shared.updateMusicLayersForSize(currentSize)
+                    if gameMode != .timed {
+                        AudioManager.shared.updateMusicLayersForSize(currentSize)
+                    }
                 }
                 
                 // Check grace period before playing sounds
@@ -2048,6 +2367,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     // MARK: - Touch Handling
     
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        // Block ALL input during countdown
+        guard !isCountdownActive else { return }
+        
         guard let touch = touches.first else { return }
         let location = touch.location(in: self)
         
@@ -2062,8 +2384,8 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
                 }
             }
             
-            if useRelativeMovement {
-                // Relative mode: tap anywhere to resume
+            if useJoystickMode {
+                // Joystick mode: tap anywhere to resume
                 resumeGame(touch: touch, at: location)
             } else {
                 // Direct mode: must tap on the black hole to resume
@@ -2111,9 +2433,12 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             isBlackHoleBeingMoved = true
             activeTouch = touch
             
-            if useRelativeMovement {
-                // Relative mode: record anchor point, don't move black hole
-                previousTouchLocation = location
+            if useJoystickMode {
+                // Joystick mode: show joystick at touch point
+                if let joystick = virtualJoystick {
+                    let localPos = convert(location, to: cameraNode)
+                    joystick.show(at: localPos)
+                }
             } else {
                 // Direct mode: snap black hole to touch location
                 blackHole.position = location
@@ -2124,6 +2449,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard !isGameOver else { return }
         guard !isGamePaused else { return }  // Don't move when paused
+        guard !isCountdownActive else { return }  // Don't move during countdown
         guard let touch = touches.first else { return }
         
         // Only respond to the active touch
@@ -2131,11 +2457,10 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         
         let location = touch.location(in: self)
         
-        if useRelativeMovement, let prevLocation = previousTouchLocation {
-            // Relative mode: apply finger delta to black hole position
-            let delta = CGPoint(x: location.x - prevLocation.x, y: location.y - prevLocation.y)
-            blackHole.position = CGPoint(x: blackHole.position.x + delta.x, y: blackHole.position.y + delta.y)
-            previousTouchLocation = location
+        if useJoystickMode, let joystick = virtualJoystick, joystick.isActive {
+            // Joystick mode: update thumb position
+            let localPos = convert(location, to: cameraNode)
+            joystick.updateThumb(touchLocation: localPos)
         } else {
             // Direct mode: snap to finger position
             blackHole.position = location
@@ -2188,7 +2513,9 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         if touch == activeTouch {
             isBlackHoleBeingMoved = false
             activeTouch = nil
-            previousTouchLocation = nil
+            
+            // Hide joystick on finger lift
+            virtualJoystick?.hide()
             
             // PAUSE GAME when finger lifts (if not already game over/paused)
             if !isGameOver && !isGamePaused {
@@ -2212,7 +2539,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         if touch == activeTouch {
             isBlackHoleBeingMoved = false
             activeTouch = nil
-            previousTouchLocation = nil
+            virtualJoystick?.hide()
             
             // PAUSE GAME when touch cancelled (same as finger lift)
             if !isGameOver && !isGamePaused {
@@ -2238,6 +2565,60 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         
         // Update camera to follow black hole smoothly
         updateCamera()
+        
+        // Update timed mode timer
+        if gameMode == .timed && !isCountdownActive {
+            if lastTimerUpdateTime > 0 {
+                let dt = currentTime - lastTimerUpdateTime
+                if dt < 1.0 {  // Skip large gaps (backgrounding)
+                    remainingTime -= dt
+                }
+            }
+            lastTimerUpdateTime = currentTime
+            
+            // Update timer display — ONLY when the displayed second changes
+            refreshTimedTimerDisplay()
+            
+            // Flash red when < 10s — ONLY update color when flash state changes
+            if remainingTime < 10 {
+                let flash = sin(currentTime * 6) > 0
+                if lastFlashState != flash {
+                    lastFlashState = flash
+                    timerLabel?.fontColor = flash ? .red : .white
+                    timerBackground?.strokeColor = flash ?
+                        UIColor.red.withAlphaComponent(0.7) :
+                        UIColor(red: 131/255, green: 214/255, blue: 255/255, alpha: 0.5)
+                }
+            }
+            
+            // Update streak display — show the simplified score multiplier only.
+            if currentStreak != lastDisplayedStreak {
+                lastDisplayedStreak = currentStreak
+                let multiplier = timedScoreMultiplier(for: currentStreak)
+                streakLabel?.text = multiplier > 1 ? "x\(multiplier)" : ""
+            }
+            
+            // Time's up!
+            if remainingTime <= 0 {
+                remainingTime = 0
+                gameOverReason = "TIME'S UP"
+                triggerGameOver()
+                return
+            }
+        }
+        
+        // Apply joystick velocity to black hole position
+        if useJoystickMode, let joystick = virtualJoystick, joystick.isActive {
+            let velocity = joystick.getVelocity()
+            if velocity.dx != 0 || velocity.dy != 0 {
+                // deltaTime from frame rate (~1/60)
+                let dt: CGFloat = CGFloat(1.0 / 60.0)
+                blackHole.position = CGPoint(
+                    x: blackHole.position.x + velocity.dx * dt,
+                    y: blackHole.position.y + velocity.dy * dt
+                )
+            }
+        }
         
         // Track black hole movement for predictive spawning
         movementTracker.recordPosition(blackHole.position, at: currentTime)
@@ -2273,8 +2654,10 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         // Update power-up UI
         updatePowerUpUI(currentTime: currentTime)
         
-        // Apply passive shrink and update indicator
-        applyPassiveShrink(currentTime: currentTime)
+        // Apply passive shrink and update indicator (disabled in timed mode)
+        if gameMode != .timed {
+            applyPassiveShrink(currentTime: currentTime)
+        }
         updateShrinkIndicator()
         
         applyGravity()
@@ -2922,7 +3305,19 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         // Update stats
         let sessionDuration = CACurrentMediaTime() - sessionStartTime
         GameStats.shared.updatePlayTime(seconds: sessionDuration)
-        GameStats.shared.updateHighScore(score: GameManager.shared.currentScore)
+        
+        // Timed mode specific stats + achievements
+        if gameMode == .timed {
+            GameStats.shared.recordTimedGame(
+                score: GameManager.shared.currentScore,
+                bestStreak: bestStreak,
+                penalties: timePenaltiesCount
+            )
+            // Mark as played (hides NEW badge on menu)
+            UserDefaults.standard.set(true, forKey: "hasPlayedTimedMode")
+        } else {
+            GameStats.shared.updateHighScore(score: GameManager.shared.currentScore)
+        }
         
         // Stop all danger proximity haptics
         HapticManager.shared.stopAllDangerProximityHaptics()
@@ -2955,14 +3350,21 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         GameManager.shared.incrementGameOverCount()
         
         // Check if we should request App Store review
-        let isNewHighScore = GameManager.shared.currentScore > GameManager.shared.highScore
+        // Compare against snapshot from game start (highScore is updated in real-time during gameplay)
+        let isNewHighScore = GameManager.shared.currentScore > highScoreAtGameStart
         ReviewManager.shared.recordGameFinished(
             score: GameManager.shared.currentScore,
             playTime: sessionDuration,
             isNewHighScore: isNewHighScore
         )
         
-        // Wait a brief moment for game over sound to start, then show ad
+        // Let the game-over SFX start before an ad/loading UI can interrupt audio.
+        run(SKAction.wait(forDuration: 0.7)) { [weak self] in
+            self?.presentPostGameOverFlow()
+        }
+    }
+    
+    private func presentPostGameOverFlow() {
         // Check if we should show an ad
         if GameManager.shared.shouldShowAd() {
             guard let viewController = self.view?.window?.rootViewController else {
@@ -3034,10 +3436,94 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         gameOverOverlayScene = overlayScene
         overlayView.presentScene(overlayScene)
 
-        let hasNewHighScore = GameManager.shared.currentScore == GameManager.shared.highScore && GameManager.shared.highScore > 0
-        overlayScene.configure(reason: gameOverReason, finalScore: GameManager.shared.currentScore, hasNewHighScore: hasNewHighScore)
+        let hasNewHighScore: Bool
+        if gameMode == .timed {
+            hasNewHighScore = GameManager.shared.currentScore == GameManager.shared.timedHighScore && GameManager.shared.timedHighScore > 0
+        } else {
+            hasNewHighScore = GameManager.shared.currentScore == GameManager.shared.highScore && GameManager.shared.highScore > 0
+        }
+        overlayScene.configure(
+            reason: gameOverReason,
+            finalScore: GameManager.shared.currentScore,
+            hasNewHighScore: hasNewHighScore,
+            gameMode: gameMode,
+            bestStreak: bestStreak,
+            timePenalties: timePenaltiesCount,
+            timedHighScore: GameManager.shared.timedHighScore
+        )
         self.restartButton = overlayScene.restartButton
         self.returnToMenuButton = overlayScene.returnToMenuButton
+    }
+    
+    // MARK: - Feedback Gate
+    
+    @objc private func handleShowReviewGate() {
+        // Small delay so it doesn't overlap with the game over UI transition
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            self?.showFeedbackGate()
+        }
+    }
+    
+    private func showFeedbackGate() {
+        guard let viewController = self.view?.window?.rootViewController else {
+            print("⚠️ No root view controller, skipping feedback gate")
+            return
+        }
+        
+        let alert = UIAlertController(
+            title: "Enjoying Singularity?",
+            message: nil,
+            preferredStyle: .alert
+        )
+        
+        alert.addAction(UIAlertAction(title: "Yes!", style: .default) { _ in
+            print("⭐ FeedbackGate: User tapped Yes!")
+            ReviewManager.shared.showNativeReviewPrompt()
+        })
+        
+        alert.addAction(UIAlertAction(title: "Not Really", style: .default) { _ in
+            print("⭐ FeedbackGate: User tapped Not Really")
+            ReviewManager.shared.recordReviewDeclined()
+            self.composeFeedbackEmail()
+        })
+        
+        viewController.present(alert, animated: true)
+        print("⭐ Feedback gate presented (native alert)")
+    }
+    
+    private func composeFeedbackEmail() {
+        let recipient = "support@atreidesgames.com"
+        let subject = "Singularity Feedback"
+        
+        let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "Unknown"
+        let buildNumber = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "Unknown"
+        let deviceModel = UIDevice.current.model
+        let systemVersion = UIDevice.current.systemVersion
+        
+        let body = """
+        
+        
+        ---
+        App Version: \(appVersion) (\(buildNumber))
+        Device: \(deviceModel)
+        iOS: \(systemVersion)
+        """
+        
+        var components = URLComponents()
+        components.scheme = "mailto"
+        components.path = recipient
+        components.queryItems = [
+            URLQueryItem(name: "subject", value: subject),
+            URLQueryItem(name: "body", value: body)
+        ]
+        
+        if let mailtoURL = components.url {
+            UIApplication.shared.open(mailtoURL, options: [:]) { success in
+                if !success {
+                    print("⚠️ FeedbackGate: Could not open mail client")
+                }
+            }
+        }
     }
     
     // MARK: - Pause System
@@ -3065,11 +3551,11 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         
         // Show pause UI
         showPauseOverlay()
-        if !useRelativeMovement {
+        if !useJoystickMode {
             showBlackHoleResumeIndicator()
         }
         
-        print("⏸️ Game paused - tap \(useRelativeMovement ? "anywhere" : "black hole") to resume")
+        print("⏸️ Game paused - tap \(useJoystickMode ? "anywhere" : "black hole") to resume")
     }
     
     private func resumeGame(touch: UITouch, at location: CGPoint) {
@@ -3090,9 +3576,12 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         isBlackHoleBeingMoved = true
         activeTouch = touch
         
-        if useRelativeMovement {
-            // Relative mode: set anchor point, don't move black hole
-            previousTouchLocation = location
+        if useJoystickMode {
+            // Joystick mode: show joystick at resume touch point
+            if let joystick = virtualJoystick {
+                let localPos = convert(location, to: cameraNode)
+                joystick.show(at: localPos)
+            }
         } else {
             // Direct mode: snap black hole to touch location
             blackHole.position = location
@@ -3140,7 +3629,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         
         // Resume instruction
         let resumeLabel = SKLabelNode(fontNamed: "NDAstroneer-Bold")
-        resumeLabel.text = useRelativeMovement ? "Tap Anywhere to Resume" : "Tap Black Hole to Resume"
+        resumeLabel.text = useJoystickMode ? "Tap Anywhere to Resume" : "Tap Black Hole to Resume"
         resumeLabel.fontSize = 24
         resumeLabel.fontColor = .white
         resumeLabel.position = CGPoint(x: 0, y: 100)
@@ -3343,8 +3832,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         
         AudioManager.shared.switchToMenuMusic()
         
-        // Start new review tracking session when returning to menu
-        ReviewManager.shared.startNewSession()
+        // NOTE: Review session reset is handled by MenuScene.didMove() — not duplicated here
         
         // Reset game state before returning to menu
         GameManager.shared.resetScore()
@@ -3391,9 +3879,10 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         // Ensure music is ready for new game (switchToGameMusic will start it in didMove)
         // Don't stop music here - let it continue or restart in new scene
         
-        // Create new scene programmatically
+        // Create new scene programmatically (preserve game mode)
         let newScene = GameScene(size: size)
         newScene.scaleMode = .aspectFill
+        newScene.gameMode = self.gameMode
         skView.presentScene(newScene, transition: SKTransition.fade(withDuration: 0.5))
     }
     
@@ -3504,7 +3993,7 @@ private class GameOverOverlayScene: SKScene {
     var returnToMenuButton: MenuButton?
     private var modalContainer: SKNode?
 
-    func configure(reason: String?, finalScore: Int, hasNewHighScore: Bool) {
+    func configure(reason: String?, finalScore: Int, hasNewHighScore: Bool, gameMode: GameMode = .normal, bestStreak: Int = 0, timePenalties: Int = 0, timedHighScore: Int = 0) {
         removeAllChildren()
         let container = SKNode()
         container.name = "gameOverModal"
@@ -3519,9 +4008,10 @@ private class GameOverOverlayScene: SKScene {
         let bottomPadding: CGFloat = 20
 
         var contentHeight: CGFloat = 80
-        if reason != nil { contentHeight += 50 }
+        if reason != nil && !(gameMode == .timed && reason == "TIME'S UP") { contentHeight += 50 }
         if hasNewHighScore { contentHeight += 70 }
         contentHeight += 60
+        if gameMode == .timed { contentHeight += 90 }  // Extra space for best score + streak/penalties
 
         let spaceForButtons = buttonHeight + spacingBetweenButtons + buttonHeight + bottomPadding
         let modalHeight = contentHeight + topPadding + spaceForButtons
@@ -3537,7 +4027,7 @@ private class GameOverOverlayScene: SKScene {
         var currentY = modalHeight/2 - topPadding - 40
 
         let titleLabel = SKLabelNode(fontNamed: "NDAstroneer-Bold")
-        titleLabel.text = "GAME OVER"
+        titleLabel.text = (gameMode == .timed && reason == "TIME'S UP") ? "TIME'S UP" : "GAME OVER"
         titleLabel.fontSize = GameConstants.gameOverFontSize
         titleLabel.fontColor = .white
         titleLabel.horizontalAlignmentMode = .center
@@ -3548,7 +4038,7 @@ private class GameOverOverlayScene: SKScene {
         gameScene?.gameOverLabel = titleLabel
         currentY -= 40
 
-        if let reason = reason {
+        if let reason = reason, !(gameMode == .timed && reason == "TIME'S UP") {
             let reasonLabel = SKLabelNode(fontNamed: "NDAstroneer-Regular")
             reasonLabel.text = reason
             reasonLabel.fontSize = 20
@@ -3580,7 +4070,7 @@ private class GameOverOverlayScene: SKScene {
 
         let finalScoreLabel = SKLabelNode(fontNamed: "NDAstroneer-Bold")
         let formattedScore = gameScene?.formatScore(finalScore) ?? String(finalScore)
-        finalScoreLabel.text = "Final Score: \(formattedScore)"
+        finalScoreLabel.text = "Score: \(formattedScore)"
         finalScoreLabel.fontSize = GameConstants.finalScoreFontSize
         finalScoreLabel.fontColor = .white
         finalScoreLabel.horizontalAlignmentMode = .center
@@ -3589,6 +4079,29 @@ private class GameOverOverlayScene: SKScene {
         finalScoreLabel.zPosition = 1
         container.addChild(finalScoreLabel)
         gameScene?.finalScoreLabel = finalScoreLabel
+        currentY -= 40
+        
+        // Timed mode extra stats
+        if gameMode == .timed {
+            // Best score line
+            let bestLabel = SKLabelNode(fontNamed: "NDAstroneer-Regular")
+            let formattedBest = gameScene?.formatScore(timedHighScore) ?? String(timedHighScore)
+            bestLabel.text = "Best: \(formattedBest)"
+            bestLabel.fontSize = 20
+            bestLabel.fontColor = UIColor.white.withAlphaComponent(0.6)
+            bestLabel.horizontalAlignmentMode = .center
+            bestLabel.verticalAlignmentMode = .center
+            bestLabel.position = CGPoint(x: 0, y: currentY)
+            bestLabel.zPosition = 1
+            container.addChild(bestLabel)
+            currentY -= 35
+            
+            // Streak + penalties on one line
+            let statsRow = makeTimedStatsRow(bestStreak: bestStreak, timePenalties: timePenalties)
+            statsRow.position = CGPoint(x: 0, y: currentY)
+            statsRow.zPosition = 1
+            container.addChild(statsRow)
+        }
 
         let buttonWidth = modalWidth - 40
         let returnButtonY = -modalHeight/2 + bottomPadding + buttonHeight/2
@@ -3607,6 +4120,69 @@ private class GameOverOverlayScene: SKScene {
         returnButton.zPosition = 1
         container.addChild(returnButton)
         returnToMenuButton = returnButton
+    }
+    
+    private func makeTimedStatsRow(bestStreak: Int, timePenalties: Int) -> SKNode {
+        let row = SKNode()
+        let spacing: CGFloat = 42
+        let statNodes = [
+            makeTimedStatNode(symbolName: "flame.fill", text: "\(bestStreak) streak"),
+            makeTimedStatNode(symbolName: "timer", text: "\(timePenalties) penalties")
+        ]
+        
+        var cursor: CGFloat = 0
+        for statNode in statNodes {
+            let frame = statNode.calculateAccumulatedFrame()
+            statNode.position = CGPoint(x: cursor - frame.minX, y: 0)
+            row.addChild(statNode)
+            cursor += frame.width + spacing
+        }
+        
+        let rowFrame = row.calculateAccumulatedFrame()
+        let centerOffset = rowFrame.midX
+        for child in row.children {
+            child.position.x -= centerOffset
+        }
+        
+        return row
+    }
+    
+    private func makeTimedStatNode(symbolName: String, text: String) -> SKNode {
+        let node = SKNode()
+        let labelX: CGFloat
+        
+        if let icon = makeSymbolIconNode(systemName: symbolName) {
+            icon.position = CGPoint(x: 0, y: 0)
+            node.addChild(icon)
+            labelX = 16
+        } else {
+            labelX = 0
+        }
+        
+        let label = SKLabelNode(fontNamed: "NDAstroneer-Regular")
+        label.text = text
+        label.fontSize = 16
+        label.fontColor = UIColor.white.withAlphaComponent(0.5)
+        label.horizontalAlignmentMode = labelX == 0 ? .center : .left
+        label.verticalAlignmentMode = .center
+        label.position = CGPoint(x: labelX, y: 0)
+        node.addChild(label)
+        
+        return node
+    }
+    
+    private func makeSymbolIconNode(systemName: String) -> SKSpriteNode? {
+        let config = UIImage.SymbolConfiguration(pointSize: 15, weight: .semibold)
+        guard let image = UIImage(systemName: systemName, withConfiguration: config)?
+            .withTintColor(.white, renderingMode: .alwaysOriginal) else {
+            return nil
+        }
+        
+        let icon = SKSpriteNode(texture: SKTexture(image: image))
+        icon.size = CGSize(width: 15, height: 15)
+        icon.color = .white
+        icon.colorBlendFactor = 1.0
+        return icon
     }
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {

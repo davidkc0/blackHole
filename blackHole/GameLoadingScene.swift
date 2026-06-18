@@ -12,6 +12,7 @@ class GameLoadingScene: SKScene {
     private var loadingLabel: SKLabelNode?
     private var isTransitioning = false
     private weak var dotsOverlay: LoadingDotsView?
+    var gameMode: GameMode = .normal
     
     override func didMove(to view: SKView) {
         // CENTER THE COORDINATE SYSTEM
@@ -100,10 +101,16 @@ class GameLoadingScene: SKScene {
                 }
                 
                 assetGroup.enter()
-                DispatchQueue.global(qos: .userInitiated).async {
-                    print("🎵 Preloading game music...")
-                    AudioManager.shared.preloadGameMusic()
-                    print("✅ Game music preloaded")
+                DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                    if self?.gameMode == .timed {
+                        print("🎵 Preloading timed mode music...")
+                        AudioManager.shared.preloadTimedMusic()
+                        print("✅ Timed mode music preloaded")
+                    } else {
+                        print("🎵 Preloading game music...")
+                        AudioManager.shared.preloadGameMusic()
+                        print("✅ Game music preloaded")
+                    }
                     assetGroup.leave()
                 }
                 
@@ -146,6 +153,7 @@ class GameLoadingScene: SKScene {
         
         let gameScene = GameScene(size: self.size)
         gameScene.scaleMode = self.scaleMode
+        gameScene.gameMode = self.gameMode
         
         removeDotsOverlay()
         let transition = SKTransition.fade(withDuration: 0.5)

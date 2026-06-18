@@ -21,7 +21,13 @@ class GameStats {
     var orangeGiantsAbsorbed: Int = 0
     var redSupergiantsAbsorbed: Int = 0
     
+    // Timed mode stats
+    var timedGamesPlayed: Int = 0
+    var timedHighScore: Int = 0
+    var bestTimedStreak: Int = 0
+    
     private let userDefaults = UserDefaults.standard
+    private let timedFlawlessMinimumScore = 5000
     
     // MARK: - Initialization
     
@@ -40,6 +46,9 @@ class GameStats {
         userDefaults.set(blueGiantsAbsorbed, forKey: "blueGiantsAbsorbed")
         userDefaults.set(orangeGiantsAbsorbed, forKey: "orangeGiantsAbsorbed")
         userDefaults.set(redSupergiantsAbsorbed, forKey: "redSupergiantsAbsorbed")
+        userDefaults.set(timedGamesPlayed, forKey: "timedGamesPlayed")
+        userDefaults.set(timedHighScore, forKey: "timedHighScore")
+        userDefaults.set(bestTimedStreak, forKey: "bestTimedStreak")
         
         submitToGameCenter()
     }
@@ -53,6 +62,9 @@ class GameStats {
         blueGiantsAbsorbed = userDefaults.integer(forKey: "blueGiantsAbsorbed")
         orangeGiantsAbsorbed = userDefaults.integer(forKey: "orangeGiantsAbsorbed")
         redSupergiantsAbsorbed = userDefaults.integer(forKey: "redSupergiantsAbsorbed")
+        timedGamesPlayed = userDefaults.integer(forKey: "timedGamesPlayed")
+        timedHighScore = userDefaults.integer(forKey: "timedHighScore")
+        bestTimedStreak = userDefaults.integer(forKey: "bestTimedStreak")
     }
     
     // MARK: - Update Methods
@@ -119,6 +131,17 @@ class GameStats {
         )
     }
     
+    func submitStoredLeaderboardStatsToGameCenter() {
+        submitToGameCenter()
+        
+        if timedHighScore > 0 {
+            GameCenterManager.shared.submitScore(
+                timedHighScore,
+                to: GameCenterConstants.timedHighScoreLeaderboardID
+            )
+        }
+    }
+    
     func checkAchievements() {
         // Star collection
         if totalStarsAbsorbed >= 100 {
@@ -166,5 +189,72 @@ class GameStats {
             )
         }
     }
+    
+    // MARK: - Timed Mode
+    
+    func recordTimedGame(score: Int, bestStreak: Int, penalties: Int) {
+        timedGamesPlayed += 1
+        if score > timedHighScore {
+            timedHighScore = score
+            GameCenterManager.shared.submitScore(
+                timedHighScore,
+                to: GameCenterConstants.timedHighScoreLeaderboardID
+            )
+        }
+        if bestStreak > bestTimedStreak {
+            bestTimedStreak = bestStreak
+        }
+        save()
+        checkTimedAchievements(score: score, bestStreak: bestStreak, penalties: penalties)
+    }
+    
+    private func checkTimedAchievements(score: Int, bestStreak: Int, penalties: Int) {
+        // First timed game
+        GameCenterManager.shared.reportAchievement(
+            identifier: GameCenterConstants.achievementTimedFirst
+        )
+        
+        // Score milestones
+        if score >= 5000 {
+            GameCenterManager.shared.reportAchievement(
+                identifier: GameCenterConstants.achievementTimedScore5000
+            )
+        }
+        if score >= 15000 {
+            GameCenterManager.shared.reportAchievement(
+                identifier: GameCenterConstants.achievementTimedScore15000
+            )
+        }
+        if score >= 25000 {
+            GameCenterManager.shared.reportAchievement(
+                identifier: GameCenterConstants.achievementTimedScore25000
+            )
+        }
+        
+        // Streak
+        if bestStreak >= 10 {
+            GameCenterManager.shared.reportAchievement(
+                identifier: GameCenterConstants.achievementTimedStreak10
+            )
+        }
+        if bestStreak >= 20 {
+            GameCenterManager.shared.reportAchievement(
+                identifier: GameCenterConstants.achievementTimedStreak20
+            )
+        }
+        
+        // Flawless (no penalties)
+        if penalties == 0 && score >= timedFlawlessMinimumScore {
+            GameCenterManager.shared.reportAchievement(
+                identifier: GameCenterConstants.achievementTimedNoPenalty
+            )
+        }
+        
+        // Timed mode repeat play
+        if timedGamesPlayed >= 10 {
+            GameCenterManager.shared.reportAchievement(
+                identifier: GameCenterConstants.achievementTimedGames10
+            )
+        }
+    }
 }
-

@@ -12,12 +12,22 @@ class GameManager {
     
     private(set) var currentScore: Int = 0
     private(set) var highScore: Int = 0
+    private(set) var timedHighScore: Int = 0
+    
+    /// The mode currently being played — set by GameScene on didMove
+    var activeGameMode: GameMode = .normal
     
     // Ad counter properties
     private(set) var gamesPlayedSinceLastAd: Int = 0
-    private let showAdEveryNGames: Int = 2  // Show ad every 3rd game
+    private let showAdEveryNGames: Int = 2  // Show ad every 2nd game
     
     private let highScoreKey = "blackHole_highScore"
+    private let timedHighScoreKey = "blackHole_timedHighScore"
+    
+    /// Whether timed mode is unlocked (requires 500 score in normal mode)
+    var isTimedModeUnlocked: Bool {
+        return highScore >= TimedModeConstants.unlockScoreThreshold
+    }
     
     private init() {
         loadHighScore()
@@ -25,20 +35,50 @@ class GameManager {
     
     func addScore(_ points: Int) {
         currentScore = max(0, currentScore + points)
-        if currentScore > highScore {
-            highScore = currentScore
-            saveHighScore()
-            
-            // Submit to Game Center
-            GameCenterManager.shared.submitScore(
-                highScore,
-                to: GameCenterConstants.highScoreLeaderboardID
-            )
+        
+        if activeGameMode == .timed {
+            // Timed mode: track timed high score separately
+            if currentScore > timedHighScore {
+                timedHighScore = currentScore
+                saveTimedHighScore()
+                
+                GameCenterManager.shared.submitScore(
+                    timedHighScore,
+                    to: GameCenterConstants.timedHighScoreLeaderboardID
+                )
+            }
+        } else {
+            // Normal mode: track normal high score
+            if currentScore > highScore {
+                highScore = currentScore
+                saveHighScore()
+                
+                GameCenterManager.shared.submitScore(
+                    highScore,
+                    to: GameCenterConstants.highScoreLeaderboardID
+                )
+            }
         }
     }
     
     func resetScore() {
         currentScore = 0
+    }
+    
+    func submitStoredHighScoresToGameCenter() {
+        if highScore > 0 {
+            GameCenterManager.shared.submitScore(
+                highScore,
+                to: GameCenterConstants.highScoreLeaderboardID
+            )
+        }
+        
+        if timedHighScore > 0 {
+            GameCenterManager.shared.submitScore(
+                timedHighScore,
+                to: GameCenterConstants.timedHighScoreLeaderboardID
+            )
+        }
     }
     
     func incrementGameOverCount() {
@@ -83,8 +123,13 @@ class GameManager {
         UserDefaults.standard.synchronize()
     }
     
+    private func saveTimedHighScore() {
+        UserDefaults.standard.set(timedHighScore, forKey: timedHighScoreKey)
+        UserDefaults.standard.synchronize()
+    }
+    
     private func loadHighScore() {
         highScore = UserDefaults.standard.integer(forKey: highScoreKey)
+        timedHighScore = UserDefaults.standard.integer(forKey: timedHighScoreKey)
     }
 }
-

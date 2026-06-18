@@ -54,6 +54,7 @@ class AudioManager {
     
     // Power-up Loop Sound Management
     private var powerUpLoopPlayerNode: AVAudioPlayerNode?
+    private var isRecoveringAudioEngine = false
     
     // UI SFX Players
     private var buttonPressPlayer: AVAudioPlayer?
@@ -63,9 +64,19 @@ class AudioManager {
     private var soundVolume: Float = 1.0
     private var isMusicMuted = false
     private var isSoundMuted = false
+    
+    private enum MusicPlaybackContext {
+        case menu
+        case normalGame
+        case timedGame
+    }
+    
+    private var musicPlaybackContext: MusicPlaybackContext = .menu
     // Curated mix multipliers (soundtrack-forward balance)
     private var musicMix: Float = 1.0
     private var sfxMix: Float = 0.6
+    private let timedMusicMix: Float = 0.45
+    private let timedSFXMix: Float = 0.95
     
     // File Names (to be configured)
     // Menu music uses single track big_pad.wav (located in Music folder)
@@ -76,6 +87,7 @@ class AudioManager {
         "game_music_layer1", "game_music_layer2", "game_music_layer3",
         "game_music_layer4", "game_music_layer5"
     ]
+    private let timedModeMusicFileName = "timed_mode_music"
     private let soundEffectFileNames: [String: String] = [
         "correct": "correct",
         "wrong": "wrong",
@@ -96,6 +108,61 @@ class AudioManager {
     
     private init() {
         // Audio session is configured in AppDelegate at app launch
+        
+        // Listen for audio interruptions (phone calls, Siri, other apps)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAudioInterruption),
+            name: AVAudioSession.interruptionNotification,
+            object: AVAudioSession.sharedInstance()
+        )
+        
+        // Listen for audio route/configuration changes (headphones plugged/unplugged, etc.)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleConfigurationChange),
+            name: .AVAudioEngineConfigurationChange,
+            object: nil
+        )
+    }
+    
+    // MARK: - Audio Interruption Handling
+    
+    @objc private func handleAudioInterruption(notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let typeValue = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: typeValue) else {
+            return
+        }
+        
+        switch type {
+        case .began:
+            print("🔇 AudioManager: Audio interruption BEGAN")
+            // Engine will be paused/stopped by iOS automatically
+            
+        case .ended:
+            print("🔊 AudioManager: Audio interruption ENDED")
+            // Check if we should resume
+            if let optionsValue = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt {
+                let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue)
+                if options.contains(.shouldResume) {
+                    print("🔊 AudioManager: System says we should resume audio")
+                    recoverAudioEngine()
+                }
+            } else {
+                // No options provided — try to recover anyway
+                recoverAudioEngine()
+            }
+            
+        @unknown default:
+            break
+        }
+    }
+    
+    @objc private func handleConfigurationChange(notification: Notification) {
+        print("🔄 AudioManager: Audio engine configuration changed (route change)")
+        // Engine is stopped after a config change — we need to restart it
+        recoverAudioEngine()
     }
     
     // MARK: - Menu Music Preloading
@@ -196,6 +263,26 @@ class AudioManager {
         }
     }
     
+    // Timed mode: load single track into gameMusicBuffers (same path as game music)
+    func preloadTimedMusic() {
+        print("🎵 AudioManager: Preloading timed mode music...")
+        gameMusicBuffers.removeAll()
+        
+        if let buffer = loadAudioFile(fileName: timedModeMusicFileName, extensions: ["wav", "ogg"]) {
+            gameMusicBuffers = [buffer]
+            let sampleRate = buffer.format.sampleRate
+            let frameCount = Double(buffer.frameLength)
+            loopDuration = frameCount / sampleRate
+            print("✅ AudioManager: Timed music loaded into game buffers, duration: \(String(format: "%.2f", loopDuration))s")
+        } else {
+            print("⚠️ AudioManager: Failed to load timed music: \(timedModeMusicFileName)")
+            if ensureMenuMusicBuffersLoaded() {
+                gameMusicBuffers = menuMusicBuffers
+                print("ℹ️ AudioManager: Falling back to menu music for timed mode")
+            }
+        }
+    }
+    
     // MARK: - Sound Effects Preloading
     
     func preloadSoundEffects(forceReload: Bool = false) {
@@ -280,6 +367,12 @@ class AudioManager {
             return
         }
         
+        // Explicit format matching our audio files (48kHz stereo)
+        // Using Float32 (standard processing format) — AVAudioEngine converts from
+        // 24-bit integer PCM automatically, but having an explicit format prevents
+        // lazy format negotiation stalls on first buffer play
+        let explicitFormat = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 2)!
+        
         // Create music mixer node
         musicMixerNode = AVAudioMixerNode()
         guard let musicMixer = musicMixerNode else {
@@ -296,10 +389,10 @@ class AudioManager {
         }
         engine.attach(sfxMixer)
         
-        // Connect mixers to main output
+        // Connect mixers to main output with explicit format
         let mainMixer = engine.mainMixerNode
-        engine.connect(musicMixer, to: mainMixer, format: nil)
-        engine.connect(sfxMixer, to: mainMixer, format: nil)
+        engine.connect(musicMixer, to: mainMixer, format: explicitFormat)
+        engine.connect(sfxMixer, to: mainMixer, format: explicitFormat)
         
         // Create music player nodes and connect to music mixer
         musicPlayerNodes.removeAll()
@@ -307,7 +400,7 @@ class AudioManager {
             let playerNode = AVAudioPlayerNode()
             musicPlayerNodes.append(playerNode)
             engine.attach(playerNode)
-            engine.connect(playerNode, to: musicMixer, format: nil)
+            engine.connect(playerNode, to: musicMixer, format: explicitFormat)
         }
         
         // Create SFX player pool and connect to SFX mixer
@@ -317,30 +410,62 @@ class AudioManager {
             let playerNode = AVAudioPlayerNode()
             sfxPlayerNodes.append(playerNode)
             engine.attach(playerNode)
-            engine.connect(playerNode, to: sfxMixer, format: nil)
+            engine.connect(playerNode, to: sfxMixer, format: explicitFormat)
         }
         
         // Create dedicated loop players for proximity and power-up
         let proximityPlayer = AVAudioPlayerNode()
         proximityPlayerNode = proximityPlayer
         engine.attach(proximityPlayer)
-        engine.connect(proximityPlayer, to: sfxMixer, format: nil)
+        engine.connect(proximityPlayer, to: sfxMixer, format: explicitFormat)
         
         let powerUpPlayer = AVAudioPlayerNode()
         powerUpLoopPlayerNode = powerUpPlayer
         engine.attach(powerUpPlayer)
-        engine.connect(powerUpPlayer, to: sfxMixer, format: nil)
+        engine.connect(powerUpPlayer, to: sfxMixer, format: explicitFormat)
         
         // Initialize SFX mixer volume
         updateAllSFXNodeVolumes()
         
-        // Prepare engine
+        // Prepare and start engine
         do {
             try engine.prepare()
+            try engine.start()
             isAudioEngineInitialized = true
-            print("✅ AudioManager: Audio engine initialized and prepared")
+            print("✅ AudioManager: Audio engine initialized, prepared, and started")
+            
+            // Warm up ALL SFX player nodes by scheduling a tiny silent buffer
+            // This forces AVAudioEngine to fully configure every node's render path
+            // BEFORE gameplay, eliminating the stall on first real SFX play
+            let warmUpFrames: AVAudioFrameCount = 1024  // ~21ms at 48kHz
+            if let silentBuffer = AVAudioPCMBuffer(pcmFormat: explicitFormat, frameCapacity: warmUpFrames) {
+                silentBuffer.frameLength = warmUpFrames
+                // Buffer is already zeroed (silent)
+                for node in sfxPlayerNodes {
+                    node.volume = 0
+                    node.scheduleBuffer(silentBuffer, at: nil, options: [], completionHandler: nil)
+                    node.play()
+                }
+                // Also warm up proximity and power-up nodes
+                proximityPlayer.volume = 0
+                proximityPlayer.scheduleBuffer(silentBuffer, at: nil, options: [], completionHandler: nil)
+                proximityPlayer.play()
+                powerUpPlayer.volume = 0
+                powerUpPlayer.scheduleBuffer(silentBuffer, at: nil, options: [], completionHandler: nil)
+                powerUpPlayer.play()
+                
+                // Let the silent buffers play through (~21ms), then stop all nodes
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    for node in self.sfxPlayerNodes {
+                        node.stop()
+                    }
+                    self.proximityPlayerNode?.stop()
+                    self.powerUpLoopPlayerNode?.stop()
+                    print("✅ AudioManager: SFX nodes warmed up (render graph fully configured)")
+                }
+            }
         } catch {
-            print("❌ AudioManager: Failed to prepare audio engine: \(error)")
+            print("❌ AudioManager: Failed to prepare/start audio engine: \(error)")
         }
     }
     
@@ -359,6 +484,97 @@ class AudioManager {
                 print("✅ AudioManager: Audio engine started")
             } catch {
                 print("❌ AudioManager: Failed to start audio engine: \(error)")
+            }
+        }
+    }
+    
+    private func effectiveMusicMix() -> Float {
+        switch musicPlaybackContext {
+        case .timedGame:
+            return timedMusicMix
+        case .menu, .normalGame:
+            return musicMix
+        }
+    }
+    
+    private func effectiveSFXMix() -> Float {
+        switch musicPlaybackContext {
+        case .timedGame:
+            return timedSFXMix
+        case .menu, .normalGame:
+            return sfxMix
+        }
+    }
+    
+    /// Public entry point for AppDelegate to restart the engine after app interruptions
+    /// (e.g. backgrounding via mailto: URL, ads, Game Center overlay)
+    func restartEngineIfNeeded() {
+        recoverAudioEngine()
+    }
+    
+    /// Tracks whether the app was interrupted (backgrounded). Set by recoverAudioEngine,
+    /// cleared after successful restart. Used by ensureAudioEngineRunning as a fallback.
+    private var wasInterrupted = false
+    
+    /// Full audio engine recovery after app interruption.
+    /// IMPORTANT: Do NOT trust engine.isRunning — with .ambient category,
+    /// iOS can silently kill audio output while reporting the engine as "running".
+    private func recoverAudioEngine() {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in
+                self?.recoverAudioEngine()
+            }
+            return
+        }
+        
+        guard isAudioEngineInitialized, let engine = audioEngine else { return }
+        guard !isRecoveringAudioEngine else {
+            print("ℹ️ AudioManager: Recovery already in progress, skipping nested recovery")
+            return
+        }
+        
+        isRecoveringAudioEngine = true
+        defer { isRecoveringAudioEngine = false }
+        
+        print("🔄 AudioManager: Recovering audio engine after interruption...")
+        let shouldResumeMusic = isPlaying && !currentMusicBuffers.isEmpty
+        
+        // 1. Reactivate the audio session
+        do {
+            try AVAudioSession.sharedInstance().setActive(true)
+            print("✅ AudioManager: Audio session reactivated")
+        } catch {
+            print("❌ AudioManager: Failed to reactivate audio session: \(error)")
+        }
+        
+        // 2. Force stop the engine (clears any stale/zombie state)
+        //    Do NOT check engine.isRunning — it lies after .ambient interruptions
+        engine.stop()
+        
+        // 3. Restart the engine
+        do {
+            try engine.start()
+            wasInterrupted = false
+            print("✅ AudioManager: Audio engine force-restarted after interruption")
+            
+            if shouldResumeMusic {
+                for playerNode in musicPlayerNodes {
+                    playerNode.stop()
+                }
+                activeLayers.removeAll()
+                isPlaying = false
+                playBackgroundMusic()
+                print("✅ AudioManager: Music rescheduled after engine recovery")
+            }
+        } catch {
+            print("❌ AudioManager: Failed to restart audio engine: \(error)")
+            // Last resort: full tear-down and re-initialization
+            print("🔄 AudioManager: Attempting full re-initialization...")
+            isAudioEngineInitialized = false
+            initializeAudioEngine()
+            if isAudioEngineInitialized {
+                ensureAudioEngineRunning()
+                print("✅ AudioManager: Full re-initialization succeeded")
             }
         }
     }
@@ -383,9 +599,9 @@ class AudioManager {
             currentMusicBuffers = menuMusicBuffers
         }
         
-        // Menu music has 1 layer, game music has 5 layers
-        let isMenuMusic = currentMusicBuffers.count == 1
-        let expectedLayerCount = isMenuMusic ? 1 : 5
+        // Single-track (menu or timed) has 1 layer, game music has 5 layers
+        let isSingleTrack = currentMusicBuffers.count == 1
+        let expectedLayerCount = isSingleTrack ? 1 : 5
         
         guard !currentMusicBuffers.isEmpty, currentMusicBuffers.count == expectedLayerCount else {
             print("⚠️ AudioManager: Music buffers not loaded (expected \(expectedLayerCount), got \(currentMusicBuffers.count))")
@@ -403,9 +619,9 @@ class AudioManager {
         
         // Menu music: activate only layer 0 (single layer)
         // Game music: activate all 5 layers, but mute layers 2-5 initially (unmute based on size phases)
-        if isMenuMusic {
+        if isSingleTrack {
             activateLayer(0, startFromBeginning: true)
-            print("🎵 AudioManager: Menu music started (single layer)")
+            print("🎵 AudioManager: Single-track music started")
         } else {
             // Start all 5 layers playing, but only unmute layer 1 initially
             print("🎵 AudioManager: Game music starting - activating all 5 layers (synced playback, progressive unmuting)")
@@ -530,7 +746,7 @@ class AudioManager {
         }
         
         // Set initial volume
-        let targetVolume = isMusicMuted ? 0.0 : (musicVolume * musicMix)
+        let targetVolume = isMusicMuted ? 0.0 : (musicVolume * effectiveMusicMix())
         layerVolumes[layerIndex] = targetVolume
         playerNode.volume = targetVolume
         
@@ -578,7 +794,7 @@ class AudioManager {
     }
     
     // Switch to game music (if different from menu music)
-    func switchToGameMusic() {
+    func switchToGameMusic(timedMode: Bool = false) {
         guard !gameMusicBuffers.isEmpty else {
             print("⚠️ AudioManager: Game music buffers not loaded")
             return
@@ -593,6 +809,8 @@ class AudioManager {
         
         // Switch buffers
         currentMusicBuffers = gameMusicBuffers
+        musicPlaybackContext = timedMode ? .timedGame : .normalGame
+        updateAllSFXNodeVolumes()
         
         // Update loop duration
         if let firstBuffer = gameMusicBuffers.first {
@@ -605,7 +823,7 @@ class AudioManager {
         // Always start game music when switching (game should have music playing)
         playBackgroundMusic()
         
-        print("✅ AudioManager: Switched to game music")
+        print("✅ AudioManager: Switched to \(timedMode ? "timed" : "game") music")
     }
     
     // Switch to menu music
@@ -624,6 +842,8 @@ class AudioManager {
         
         // Switch buffers
         currentMusicBuffers = menuMusicBuffers
+        musicPlaybackContext = .menu
+        updateAllSFXNodeVolumes()
         
         // Update loop duration
         if let firstBuffer = menuMusicBuffers.first {
@@ -703,7 +923,7 @@ class AudioManager {
         } else {
             // For menu music, update all active layers
             for layerIndex in activeLayers {
-                let targetVolume = isMusicMuted ? 0.0 : (musicVolume * musicMix)
+                let targetVolume = isMusicMuted ? 0.0 : (musicVolume * effectiveMusicMix())
                 musicPlayerNodes[layerIndex].volume = targetVolume
                 layerVolumes[layerIndex] = targetVolume
             }
@@ -717,7 +937,7 @@ class AudioManager {
         isSoundMuted = (soundVolume == 0.0)
         updateAllSFXNodeVolumes()
         if let player = buttonPressPlayer {
-            player.volume = isSoundMuted ? 0.0 : (soundVolume * sfxMix)
+            player.volume = isSoundMuted ? 0.0 : (soundVolume * effectiveSFXMix())
         }
         
         // SFX played via AVAudioEngine respect mixer volume automatically
@@ -736,7 +956,7 @@ class AudioManager {
         } else {
             // For menu music, update all active layers
             for layerIndex in activeLayers {
-                let targetVolume = muted ? 0.0 : (layerVolumes[layerIndex] ?? musicVolume)
+                let targetVolume = muted ? 0.0 : (musicVolume * effectiveMusicMix())
                 musicPlayerNodes[layerIndex].volume = targetVolume
                 if !muted {
                     layerVolumes[layerIndex] = targetVolume
@@ -756,7 +976,7 @@ class AudioManager {
         
         updateAllSFXNodeVolumes()
         if let player = buttonPressPlayer {
-            player.volume = muted ? 0.0 : (soundVolume * sfxMix)
+            player.volume = muted ? 0.0 : (soundVolume * effectiveSFXMix())
         }
     }
     
@@ -806,7 +1026,7 @@ class AudioManager {
         guard !isSoundMuted else { return }
         player.stop()
         player.currentTime = 0
-        player.volume = soundVolume * sfxMix
+        player.volume = soundVolume * effectiveSFXMix()
         player.play()
     }
     
@@ -824,6 +1044,10 @@ class AudioManager {
         }
         
         ensureAudioEngineRunning()
+        guard audioEngine?.isRunning == true else {
+            print("❌ AudioManager: Audio engine is not running; skipping power-up loop")
+            return
+        }
         
         guard let player = powerUpLoopPlayerNode else {
             print("⚠️ AudioManager: Power-up loop player node not available")
@@ -878,6 +1102,10 @@ class AudioManager {
         }
         
         ensureAudioEngineRunning()
+        guard audioEngine?.isRunning == true else {
+            print("❌ AudioManager: Audio engine is not running; skipping proximity loop")
+            return
+        }
         
         if proximityPlayerNode == nil {
             guard let engine = audioEngine, let sfxMixer = sfxMixerNode else {
@@ -964,6 +1192,10 @@ class AudioManager {
             print("❌ AudioManager: Audio engine or SFX mixer not available")
             return
         }
+        guard engine.isRunning else {
+            print("❌ AudioManager: Audio engine is not running; skipping SFX '\(key)'")
+            return
+        }
         
         if sfxPlayerNodes.isEmpty {
             // Fallback: lazily create a single SFX player if pool was not created
@@ -1022,7 +1254,7 @@ class AudioManager {
             targetPhase = 5  // All layers
         }
         
-        let targetVolume = isMusicMuted ? 0.0 : (musicVolume * musicMix)
+        let targetVolume = isMusicMuted ? 0.0 : (musicVolume * effectiveMusicMix())
         
         print("🎵 DEBUG: updateMusicLayersForSize - size: \(String(format: "%.1f", size))pt, phase: \(targetPhase), targetVolume: \(targetVolume), isMusicMuted: \(isMusicMuted), musicVolume: \(musicVolume)")
         
@@ -1055,7 +1287,7 @@ class AudioManager {
     }
     
     private func updateAllSFXNodeVolumes() {
-        let targetVolume = isSoundMuted ? 0.0 : (soundVolume * sfxMix)
+        let targetVolume = isSoundMuted ? 0.0 : (soundVolume * effectiveSFXMix())
         sfxMixerNode?.outputVolume = targetVolume
     }
     

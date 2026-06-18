@@ -8,9 +8,13 @@
 
 import Foundation
 import StoreKit
+import UIKit
 
 class ReviewManager {
     static let shared = ReviewManager()
+    
+    /// Posted when the feedback gate modal should be shown (GameScene listens for this)
+    static let showReviewGateNotification = Notification.Name("ReviewManager_showReviewGate")
     
     private let userDefaults = UserDefaults.standard
     
@@ -29,7 +33,7 @@ class ReviewManager {
     
     // BASE REQUIREMENT (ALL must be met):
     // 1. Total games played >= 6
-    // 2. Game number is ODD (not even - avoid ad conflicts)
+    // 2. No ad is being shown this game (avoid competing with interstitial)
     // 3. At least 7 days since last review request (conservative cooldown)
     // 4. We haven't requested more than 2 times in the past 365 days (conservative limit)
     
@@ -43,10 +47,7 @@ class ReviewManager {
     // D. Reached a new high score in this game
     
     // EXCLUSIONS (will NOT show if):
-    // - Game number is even (ads show after games 2, 4, 6, etc.)
-    // - Already requested 2+ times in past year
-    // - Less than 7 days since last request
-    // - User has purchased Remove Ads (optional - might want to show to paying users too)
+    // - An ad is showing this game (interstitial would overlay/compete)
     
     // Configuration constants
     private let minTotalGames = 6
@@ -103,6 +104,17 @@ class ReviewManager {
         sessionGames: Int,
         isNewHighScore: Bool
     ) {
+        // ⚠️ DEBUG: Set to true to show feedback gate after every game over (remove before shipping!)
+        let DEBUG_ALWAYS_SHOW_GATE = false
+        
+        if DEBUG_ALWAYS_SHOW_GATE {
+            print("⭐ ReviewManager: DEBUG MODE - Showing gate unconditionally")
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: ReviewManager.showReviewGateNotification, object: nil)
+            }
+            return
+        }
+        
         print("⭐ ReviewManager: Checking review conditions...")
         print("   - Total games: \(totalGames)")
         print("   - Current score: \(score)")
@@ -120,9 +132,9 @@ class ReviewManager {
             return
         }
         
-        // 2. CRITICAL: Don't show after even-numbered games (ads show after games 2, 4, 6, etc.)
-        if totalGames % 2 == 0 {
-            print("   ❌ Skipping - game \(totalGames) is even (ad shown)")
+        // 2. CRITICAL: Don't show when an ad will be shown this game (avoid competing with interstitial)
+        if GameManager.shared.shouldShowAd() {
+            print("   ❌ Skipping - ad will show this game")
             return
         }
         
@@ -186,32 +198,39 @@ class ReviewManager {
     }
     
     private func requestReview(totalGames: Int) {
-        // Only request on main thread
+        // Track that we've shown the gate (counts toward our 2/year budget)
+        let requestCount = userDefaults.integer(forKey: reviewRequestCountKey) + 1
+        userDefaults.set(requestCount, forKey: reviewRequestCountKey)
+        userDefaults.set(Date(), forKey: lastReviewRequestDateKey)
+        userDefaults.set(totalGames, forKey: lastReviewRequestGameKey)
+        
+        print("⭐ ReviewManager: Showing feedback gate")
+        print("   - Gate #\(requestCount) of \(maxRequestsPerYear) per year")
+        print("   - After game #\(totalGames)")
+        print("   - Date: \(Date())")
+        
+        // Post notification so GameScene can show the feedback gate modal
         DispatchQueue.main.async {
-            // Request review (iOS will decide whether to show it)
-            // NOTE: iOS may not show it even if we request (rate limiting, user settings, etc.)
+            NotificationCenter.default.post(name: ReviewManager.showReviewGateNotification, object: nil)
+        }
+    }
+    
+    // MARK: - Gate Response Methods
+    
+    /// Called when user taps "Yes!" in the feedback gate — show native App Store review dialog
+    func showNativeReviewPrompt() {
+        DispatchQueue.main.async {
             if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
                 SKStoreReviewController.requestReview(in: windowScene)
-                
-                // IMPORTANT: Track that we've made a request
-                // We can't know if user tapped "Not Now" vs "Rate" vs dismissed,
-                // so we track every request and use conservative cooldowns
-                
-                let requestCount = self.userDefaults.integer(forKey: self.reviewRequestCountKey) + 1
-                self.userDefaults.set(requestCount, forKey: self.reviewRequestCountKey)
-                self.userDefaults.set(Date(), forKey: self.lastReviewRequestDateKey)
-                self.userDefaults.set(totalGames, forKey: self.lastReviewRequestGameKey)
-                
-                print("⭐ ReviewManager: Requested App Store review")
-                print("   - Request #\(requestCount) of \(self.maxRequestsPerYear) per year")
-                print("   - After game #\(totalGames)")
-                print("   - Date: \(Date())")
-                
-                // NOTE: We can't detect "Not Now" - iOS handles it automatically
-                // iOS will rate-limit to ~3 prompts per year regardless
-                // Our conservative tracking (2 requests/year, 7-day cooldown) helps avoid wasting attempts
+                print("⭐ ReviewManager: Native App Store review prompt shown")
             }
         }
+    }
+    
+    /// Called when user taps "Not Really" — record decline so we respect cooldown
+    func recordReviewDeclined() {
+        userDefaults.set(true, forKey: userDeclinedReviewKey)
+        print("⭐ ReviewManager: User declined review, opening feedback email")
     }
     
     // MARK: - Debug/Info Methods

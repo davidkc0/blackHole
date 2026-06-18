@@ -58,6 +58,8 @@ class GameCenterManager: NSObject {
                 
                 // Load achievements in background
                 self.loadAchievements()
+                GameManager.shared.submitStoredHighScoresToGameCenter()
+                GameStats.shared.submitStoredLeaderboardStatsToGameCenter()
             } else {
                 print("⚠️ Game Center not authenticated")
                 self.isAuthenticated = false
@@ -188,4 +190,3 @@ class GameCenterManager: NSObject {
     }
     #endif
 }
-

@@ -112,12 +112,18 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     }
 
     func applicationDidBecomeActive(_ application: UIApplication) {
-        // Reactivate audio session after interruptions (ads, Game Center overlay, etc.)
+        // Reactivate audio session after interruptions (ads, Game Center overlay, mailto:, etc.)
         do {
             try AVAudioSession.sharedInstance().setActive(true)
             print("✅ Audio session reactivated after app became active")
         } catch {
             print("⚠️ Failed to reactivate audio session: \(error)")
+        }
+        
+        // Restart AVAudioEngine if it was stopped by the interruption
+        // (e.g. backgrounding via mailto: URL causes the engine to stop)
+        if AudioManager.shared.isAudioEngineInitialized {
+            AudioManager.shared.restartEngineIfNeeded()
         }
     }
 }

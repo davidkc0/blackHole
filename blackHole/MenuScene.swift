@@ -539,14 +539,102 @@ class MenuScene: SKScene {
         let screenSize = UIScreen.main.bounds.size
         let scale = min(screenSize.width, screenSize.height) / 400.0  // Scale factor for phone screens
         
-        timedModeButton = MenuButton(text: "TIMED MODE", size: .medium, fixedWidth: 220)
-        timedModeButton.position = CGPoint(x: 0, y: -80 * scale)  // Same spacing as Play to Timed Mode
+        let isUnlocked = GameManager.shared.isTimedModeUnlocked
+        let hasPlayed = UserDefaults.standard.bool(forKey: "hasPlayedTimedMode")
+        
+        let buttonText = isUnlocked ? "TIMED MODE" : "🔒 TIMED MODE"
+        timedModeButton = MenuButton(text: buttonText, size: .medium, fixedWidth: 220)
+        timedModeButton.position = CGPoint(x: 0, y: -80 * scale)
         timedModeButton.zPosition = 100
-        timedModeButton.alpha = 0.6  // Indicate not yet available
+        timedModeButton.alpha = isUnlocked ? 1.0 : 0.5
+        
         timedModeButton.onTap = { [weak self] in
-            self?.showComingSoon()
+            if isUnlocked {
+                self?.startTimedMode()
+            } else {
+                self?.showTimedModeLockedModal()
+            }
         }
         addChild(timedModeButton)
+        
+        // Add "NEW" badge if unlocked but not yet played
+        if isUnlocked && !hasPlayed {
+            let badge = SKLabelNode(fontNamed: "NDAstroneer-Bold")
+            badge.text = "NEW"
+            badge.fontSize = 10
+            badge.fontColor = .white
+            badge.verticalAlignmentMode = .center
+            badge.horizontalAlignmentMode = .center
+            badge.zPosition = 105
+            
+            let badgeBg = SKShapeNode(rectOf: CGSize(width: 40, height: 18), cornerRadius: 9)
+            badgeBg.fillColor = UIColor(red: 1.0, green: 0.3, blue: 0.2, alpha: 0.9)
+            badgeBg.strokeColor = .clear
+            badgeBg.position = CGPoint(x: 95, y: 15)
+            badgeBg.zPosition = 104
+            badgeBg.name = "newBadge"
+            badgeBg.addChild(badge)
+            timedModeButton.addChild(badgeBg)
+            
+            // Subtle pulse animation
+            let pulse = SKAction.sequence([
+                SKAction.scale(to: 1.1, duration: 0.6),
+                SKAction.scale(to: 1.0, duration: 0.6)
+            ])
+            badgeBg.run(SKAction.repeatForever(pulse))
+        }
+    }
+    
+    private func startTimedMode() {
+        guard !isTransitioning else { return }
+        isTransitioning = true
+        
+        AudioManager.shared.playCorrectSound(on: self)
+        transitionToTimedGame()
+    }
+    
+    private func transitionToTimedGame() {
+        AudioManager.shared.stopBackgroundMusic()
+        GameCenterManager.shared.hideAccessPointForGameplay()
+        
+        let nextScene = GameLoadingScene(size: size)
+        nextScene.scaleMode = .aspectFill
+        nextScene.gameMode = .timed
+        
+        let transition = SKTransition.crossFade(withDuration: 0.1)
+        view?.presentScene(nextScene, transition: transition)
+    }
+    
+    private func showTimedModeLockedModal() {
+        AudioManager.shared.playButtonPressSound()
+        
+        let scoreNeeded = TimedModeConstants.unlockScoreThreshold
+        let currentBest = GameManager.shared.highScore
+        
+        let message = SKLabelNode(fontNamed: "NDAstroneer-Regular")
+        message.text = "Reach \(scoreNeeded) in Normal Mode to unlock!"
+        message.fontSize = 16
+        message.fontColor = UIColor(red: 1.0, green: 0.8, blue: 0.2, alpha: 1.0)
+        message.horizontalAlignmentMode = .center
+        message.position = CGPoint(x: 0, y: timedModeButton.position.y - 40)
+        message.zPosition = 200
+        message.alpha = 0
+        addChild(message)
+        
+        // Show current progress
+        let progressLabel = SKLabelNode(fontNamed: "NDAstroneer-Regular")
+        progressLabel.text = "Your best: \(currentBest)/\(scoreNeeded)"
+        progressLabel.fontSize = 13
+        progressLabel.fontColor = UIColor.white.withAlphaComponent(0.5)
+        progressLabel.horizontalAlignmentMode = .center
+        progressLabel.position = CGPoint(x: 0, y: -22)
+        message.addChild(progressLabel)
+        
+        let appear = SKAction.fadeIn(withDuration: 0.2)
+        let wait = SKAction.wait(forDuration: 2.5)
+        let disappear = SKAction.fadeOut(withDuration: 0.3)
+        let remove = SKAction.removeFromParent()
+        message.run(SKAction.sequence([appear, wait, disappear, remove]))
     }
     
     private func setupMainMenuRemoveAdsButton() {
@@ -1413,7 +1501,7 @@ class MenuScene: SKScene {
     ) {
         let buttonX = -modalWidth/2 + leftPadding + 20
         let enabled = UserDefaults.standard.bool(forKey: "relativeMovementEnabled")
-        let iconName = enabled ? "free touch-on" : "free touch-off"
+        let iconName = enabled ? "joystick-on" : "joystick-off"
         let toggleButton = IconButton(iconName: iconName, size: 40, cornerRadius: 5)
         toggleButton.position = CGPoint(x: buttonX, y: y)
         toggleButton.zPosition = 1
@@ -1424,7 +1512,7 @@ class MenuScene: SKScene {
         settingsModalContainer!.addChild(toggleButton)
         
         let labelNode = SKLabelNode(fontNamed: "NDAstroneer-Regular")
-        labelNode.text = "Free Touch"
+        labelNode.text = "Joystick Mode"
         labelNode.fontSize = 18
         labelNode.fontColor = UIColor.white.withAlphaComponent(0.7)
         labelNode.horizontalAlignmentMode = .left
@@ -1438,7 +1526,7 @@ class MenuScene: SKScene {
     private func toggleRelativeMovement() {
         let newValue = !UserDefaults.standard.bool(forKey: "relativeMovementEnabled")
         UserDefaults.standard.set(newValue, forKey: "relativeMovementEnabled")
-        freeTouchToggleButton?.updateIcon(newValue ? "free touch-on" : "free touch-off")
+        freeTouchToggleButton?.updateIcon(newValue ? "joystick-on" : "joystick-off")
     }
     
     @objc private func handlePurchaseSuccessNotification() {
